@@ -250,33 +250,10 @@ function isHTMLString(data) {
 	return Array.from(doc.body.childNodes).some(node => node.nodeType === 1); // Node.ELEMENT_NODE === 1
 }
 
-function extractImageAndTextFromHTML(htmlContent) {
-	// Create a new DOMParser
-	const parser = new DOMParser();
-
-	// Parse the HTML string into a document
-	const doc = parser.parseFromString(htmlContent, 'text/html');
-
-	// Extract the img element
-	const imgTag = doc.querySelector('img');
-
-	const imgSrc = imgTag ? imgTag.getAttribute('src') : '';
-	const imgAlt = imgTag ? imgTag.getAttribute('alt') : '';
-
-	const textContent = doc.body.textContent || "";
-
-	// Create the new HTML structure using extracted data
-	const newHTML = `
-    <div style="display: flex; align-items: center; justify-content: center; object-fit: cover">
-      <img 
-        style="border-radius: 50%; width: 30px; height: 30px; margin-right: 20px;" 
-        src="${imgSrc}" 
-        alt="${imgAlt}">
-      <p style="margin: 0; text-wrap: wrap;">${textContent}</p>
-    </div>
-  `;
-
-	return newHTML;
+function extractImageAndTextFromHTML(htmlContent: string): string {
+    // Remove all <img> tags using a regex
+    const strippedHtml = htmlContent.replace(/<img[^>]*>/g, '');
+    return strippedHtml;
 }
 
 function deleteItem(item: any) {
