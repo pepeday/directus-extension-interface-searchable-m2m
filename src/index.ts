@@ -5,7 +5,7 @@ export default defineInterface({
 	id: 'directus-extension-interface-searchable-m2m',
 	name: 'Searchable M2M interface',
 	description: 'Searchable M2M interface',
-	icon: 'note_stack_add',
+	icon: 'note',
 	component: InterfaceComponent,
 	relational: true,
 	types: ['alias'],
@@ -58,7 +58,7 @@ export default defineInterface({
 					options: {
 						collectionName: relations.m2o?.related_collection,
 						allowNone: false,
-						typeAllowList: ['string', 'integer', 'bigInteger'],
+						typeAllowList: ['string', 'integer', 'bigInteger','text'],
 						allowForeignKeys: false,
 						allowPrimaryKey: true,
 					},

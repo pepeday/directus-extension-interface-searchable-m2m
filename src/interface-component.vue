@@ -21,8 +21,8 @@
 	<template v-else>
 		<v-menu v-if="selectAllowed" v-model="menuActive" attached full-height>
 			<template #activator>
-				<v-input v-model="localInput" :placeholder="placeholder || t('search_items')" :disabled="disabled"
-					@keydown="onInputKeyDown" @focus="menuActive = true">
+				<v-input ref="inputRef" v-model="localInput" :placeholder="placeholder || t('search_items')"
+					:disabled="disabled" @keydown="onInputKeyDown" @focus="menuActive = true">
 					<template v-if="iconLeft" #prepend>
 						<v-icon v-if="iconLeft" :name="iconLeft" />
 					</template>
@@ -67,18 +67,25 @@
 		<v-skeleton-loader v-if="loading" type="block-list-item" />
 
 		<div v-else-if="items.length" class="tags">
-			<v-chip v-for="item in items" :key="item[relationInfo.junctionField.field][props.referencingField]"
-				v-tooltip="t('Click to edit')" :disabled="disabled || !selectAllowed" class="tag clickable" xLarge label
-				clickable>
-				<div v-for="(field, index) in displayFields" :key="index" class="content"
-					@click="openEditDrawer(item, relationInfo.junctionField.field, props)">
-					<div v-if="isHTMLString(item[relationInfo.junctionField.field][field])"
-						v-html="extractImageAndTextFromHTML(item[relationInfo.junctionField.field][field])"></div>
-					<span v-else>{{ item[relationInfo.junctionField.field][field] }}</span>
-				</div>
-				<v-icon name="close" right small @click="deleteItem(item)" v-tooltip="t('Remove')" />
-			</v-chip>
+			<v-list-item v-for="item in items" :key="item[relationInfo.junctionField.field][props.referencingField]"
+				v-tooltip="t('Click to edit')" :disabled="disabled || !selectAllowed" class="link block clickable"
+				@click="openEditDrawer(item, relationInfo.junctionField.field, props)"> <!-- Moved @click here -->
+
+				<v-list-item-content>
+					<div v-for="(field, index) in displayFields" :key="index" class="content">
+						<div v-if="isHTMLString(item[relationInfo.junctionField.field][field])"
+							v-html="extractImageAndTextFromHTML(item[relationInfo.junctionField.field][field])"></div>
+						<span v-else>{{ item[relationInfo.junctionField.field][field] }}</span>
+					</div>
+				</v-list-item-content>
+
+				<v-list-item-action>
+					<v-icon class="deselect" name="close" @click.stop="deleteItem(item)" v-tooltip="t('Remove Item')" />
+				</v-list-item-action>
+			</v-list-item>
 		</div>
+
+
 		<v-drawer v-model="editDrawer" :title="t('select_item')" @cancel="editDrawer = false">
 			<template #actions>
 				<v-button v-tooltip.bottom="t('save')" icon rounded @click="saveEdit">
@@ -105,6 +112,7 @@ import { useRelationM2M } from './use-relations';
 type RelationFK = string | number | BigInt;
 type RelationItem = RelationFK | Record<string, any>;
 
+const inputRef = ref<HTMLElement | null>(null);
 const props = withDefaults(
 	defineProps<{
 		value?: RelationItem[];
@@ -283,6 +291,8 @@ function deleteItem(item: any) {
 
 function stageItemObject(item: Record<string, RelationItem>) {
 	emitter([...(props.value || []), { [relationInfo.value.junctionField.field]: item }]);
+	localInput.value = ''; // Clear input after selection
+	//inputRef.value?.focus(); // Return focus to the input
 }
 
 async function stageLocalInput() {
@@ -484,6 +494,7 @@ function getSortingQuery(path?: string): Object {
 async function onInputKeyDown(event: KeyboardEvent) {
 	if (event.key === 'Escape' && !menuActive.value && localInput.value) {
 		localInput.value = '';
+		//inputRef.value?.focus(); // Return focus to the input
 		return;
 	}
 
@@ -500,6 +511,7 @@ async function onInputKeyDown(event: KeyboardEvent) {
 		} else if (createAllowed.value) {
 			stageLocalInput();
 		}
+		localInput.value = ''; // Clear input when Enter is clicked
 		return;
 	}
 
