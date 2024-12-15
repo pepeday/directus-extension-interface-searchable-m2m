@@ -47,13 +47,21 @@
 
 				<v-divider v-if="showAddCustom && suggestedItems.length" />
 				<template v-if="suggestedItems.length">
+
 					<v-list-item v-for="(item, index) in suggestedItems"
 						:key="item[relationInfo.relatedPrimaryKeyField.field]"
 						:active="index === suggestedItemsSelected" clickable @click="() => stageItemObject(item)">
 						<v-list-item-content>
-							{{ item[props.referencingField] }}
+
+
+							<!-- Debugging: Render raw HTML directly -->
+							<div class="limited-content" v-html="item[props.referencingField]"></div>
 						</v-list-item-content>
+
 					</v-list-item>
+
+
+
 				</template>
 			</v-list>
 
@@ -69,14 +77,22 @@
 		<div v-else-if="items.length" class="tags">
 			<v-list-item v-for="item in items" :key="item[relationInfo.junctionField.field][props.referencingField]"
 				v-tooltip="t('Click to edit')" :disabled="disabled || !selectAllowed" class="link block clickable"
-				@click="openEditDrawer(item, relationInfo.junctionField.field, props)"> <!-- Moved @click here -->
-
+				@click="openEditDrawer(item, relationInfo.junctionField.field, props)">
 				<v-list-item-content>
+
+
+
+					<!-- Field-Level Rendering -->
 					<div v-for="(field, index) in displayFields" :key="index" class="content">
+						<!-- Render HTML content -->
 						<div v-if="isHTMLString(item[relationInfo.junctionField.field][field])"
 							v-html="extractImageAndTextFromHTML(item[relationInfo.junctionField.field][field])"></div>
+
+						<!-- Render plain text -->
 						<span v-else>{{ item[relationInfo.junctionField.field][field] }}</span>
 					</div>
+
+
 				</v-list-item-content>
 
 				<v-list-item-action>
@@ -84,6 +100,7 @@
 				</v-list-item-action>
 			</v-list-item>
 		</div>
+
 
 
 		<v-drawer v-model="editDrawer" :title="t('select_item')" @cancel="editDrawer = false">
@@ -251,9 +268,9 @@ function isHTMLString(data) {
 }
 
 function extractImageAndTextFromHTML(htmlContent: string): string {
-    // Remove all <img> tags using a regex
-    const strippedHtml = htmlContent.replace(/<img[^>]*>/g, '');
-    return strippedHtml;
+	// Remove all <img> tags using a regex
+	const strippedHtml = htmlContent.replace(/<img[^>]*>/g, '');
+	return strippedHtml;
 }
 
 function deleteItem(item: any) {
@@ -589,5 +606,13 @@ async function onInputKeyDown(event: KeyboardEvent) {
 
 .layout {
 	padding: 10px 0 0 40px;
+}
+
+::v-deep(.limited-content img) {
+	max-height: 40px;
+	max-height: 40px;
+	object-fit: cover;
+	border-radius: 8px;
+
 }
 </style>
