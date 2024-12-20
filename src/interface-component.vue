@@ -66,37 +66,43 @@
 		<v-skeleton-loader v-if="loading" type="block-list-item" />
 
 		<div v-else-if="items.length" class="tags">
-			<div v-if="false" style="background: #eee; padding: 10px; margin: 10px 0;">
+			<div style="background: #eee; padding: 10px; margin: 10px 0;">
+				<pre>Items: {{ JSON.stringify(items, null, 2) }}</pre>
 				<pre>Template: {{ templateWithDefaults }}</pre>
-				<pre>Display Fields: {{ displayFields }}</pre>
-				<pre>Items: {{ items }}</pre>
+				<pre>RelatedCollection: {{ relationInfo?.value?.relatedCollection?.collection }}</pre>
+				<pre>JunctionField: {{ relationInfo?.value?.junctionField?.field }}</pre>
+				<pre>Props Template: {{ props.template }}</pre>
 			</div>
 			
-			<v-list-item 
-				v-for="item in items" 
-				:key="item[relationInfo.junctionField.field]?.[relationInfo.relatedPrimaryKeyField.field]"
-				v-tooltip="t('Click to edit')" 
-				:disabled="disabled || !selectAllowed" 
-				class="link block clickable"
-				@click="openEditDrawer(item, relationInfo.junctionField.field, props)"
-			>
-				<v-list-item-content>
-					<render-template
-						:collection="relationInfo.value?.junctionCollection?.collection"
-						:item="item"
-						:template="templateWithDefaults"
-					/>
-				</v-list-item-content>
+			<template v-if="relationInfo">
+				<v-list-item 
+					v-for="item in items" 
+					:key="item[relationInfo.junctionField.field]?.[relationInfo.relatedPrimaryKeyField.field]"
+					v-tooltip="t('Click to edit')" 
+					:disabled="disabled || !selectAllowed" 
+					class="link block clickable"
+					@click="openEditDrawer(item, relationInfo.junctionField.field, props)"
+				>
+					<v-list-item-content>
+						<div class="render-template-wrapper">
+							<render-template
+								:collection="relationInfo.junctionCollection.collection"
+								:item="item"
+								:template="props.template"
+							/>
+						</div>
+					</v-list-item-content>
 
-				<v-list-item-action>
-					<v-icon 
-						class="deselect" 
-						name="close" 
-						@click.stop="deleteItem(item)" 
-						v-tooltip="t('Remove Item')" 
-					/>
-				</v-list-item-action>
-			</v-list-item>
+					<v-list-item-action>
+						<v-icon 
+							class="deselect" 
+							name="close" 
+							@click.stop="deleteItem(item)" 
+							v-tooltip="t('Remove Item')" 
+						/>
+					</v-list-item-action>
+				</v-list-item>
+			</template>
 		</div>
 
 
@@ -187,39 +193,27 @@ const suggestedItems = ref<Record<string, any>[]>([]);
 const suggestedItemsSelected = ref<number | null>(null);
 const api = useApi();
 const templateWithDefaults = computed(() => {
-	console.log('relationInfo:', relationInfo.value);
-	console.log('props.template:', props.template);
-	
-	if (!relationInfo.value) return null;
+	console.log('Computing templateWithDefaults');
+	console.log('RelationInfo:', relationInfo.value);
+	console.log('Props template:', props.template);
+	console.log('Junction field:', relationInfo.value?.junctionField?.field);
 
-	if (props.template) return props.template;
-
-	// Default to showing the referencing field through the junction field
-	const defaultTemplate = `{{${relationInfo.value.junctionField.field}.${props.referencingField}}}`;
-	console.log('Using default template:', defaultTemplate);
-	return defaultTemplate;
+	return props.template;
 });
 
 const displayFields = computed(() => {
-	console.log('Computing displayFields');
-	console.log('templateWithDefaults:', templateWithDefaults.value);
-	
-	if (!relationInfo.value || !templateWithDefaults.value) {
-		console.log('No relationInfo or template, returning empty array');
-		return [];
-	}
-	
-	const fields = getFieldsFromTemplate(templateWithDefaults.value);
-	console.log('Extracted fields:', fields);
-	return fields;
+	if (!relationInfo?.value) return [];
+
+	return getFieldsFromTemplate(props.template || '').map(field => {
+		if (field.startsWith(relationInfo.value.junctionField.field)) {
+			return field;
+		}
+		return `${relationInfo.value.junctionField.field}.${field}`;
+	});
 });
 
 const fetchFields = computed(() => {
-	console.log('Computing fetchFields');
-	if (!relationInfo.value) {
-		console.log('No relationInfo, returning empty array');
-		return [];
-	}
+	if (!relationInfo?.value) return [];
 	
 	const fields = new Set<string>();
 	
@@ -228,8 +222,8 @@ const fetchFields = computed(() => {
 	fields.add(`${relationInfo.value.junctionField.field}.${relationInfo.value.relatedPrimaryKeyField.field}`);
 	
 	// Add template fields
-	if (templateWithDefaults.value) {
-		const templateFields = getFieldsFromTemplate(templateWithDefaults.value);
+	if (props.template) {
+		const templateFields = getFieldsFromTemplate(props.template);
 		templateFields.forEach(field => {
 			// If the field is already a fully qualified path, add it as is
 			if (field.includes('.')) {
@@ -241,12 +235,7 @@ const fetchFields = computed(() => {
 		});
 	}
 	
-	// Add referencing field
-	fields.add(`${relationInfo.value.junctionField.field}.${props.referencingField}`);
-	
-	const result = Array.from(fields);
-	console.log('Final fields:', result);
-	return result;
+	return Array.from(fields);
 });
 
 const { items, loading } = usePreviews(value);
@@ -524,9 +513,31 @@ function usePreviews(value: Ref<RelationItem[]>) {
 		fields.add(relationInfo.value.junctionPrimaryKeyField.field);
 		
 		// Add all fetch fields
-		fetchFields.value.forEach(field => fields.add(field));
+		fetchFields.value.forEach(field => {
+			// Check if the field contains a function (starts with $)
+			if (field.includes('.$')) {
+				// For thumbnail fields, we need to keep the full path
+				fields.add(field);
+			} else if (field.includes('.')) {
+				// For regular nested fields
+				fields.add(field);
+			} else {
+				// For top-level fields
+				fields.add(field);
+			}
+		});
 		
-		return Array.from(fields);
+		// Convert to array and format for API request
+		const formattedFields = Array.from(fields).map(field => {
+			// If it's a nested field with a function (like $thumbnail)
+			if (field.includes('.$')) {
+				const [path, func] = field.split('.$');
+				return `${path}.$${func}`;
+			}
+			return field;
+		});
+		
+		return formattedFields;
 	});
 
 	watch(
@@ -573,6 +584,11 @@ function usePreviews(value: Ref<RelationItem[]>) {
 						id: {
 							_in: ids.join(','),
 						},
+					},
+					deep: {
+						[relationInfo.value.junctionField.field]: {
+							_filter: {}
+						}
 					},
 					...getSortingQuery(relationInfo.value.junctionField.field),
 				},
@@ -739,5 +755,46 @@ async function onInputKeyDown(event: KeyboardEvent) {
 	object-fit: cover;
 	border-radius: 8px;
 
+}
+</style>
+
+<style lang="scss" scoped>
+.render-template-wrapper {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	width: 100%;
+	padding: var(--v-list-item-padding);
+}
+
+.field {
+	display: inline-flex;
+	max-width: 100%;
+
+	:deep(.render-template) {
+		display: inline;
+		
+		img {
+			height: 24px;
+			width: 24px;
+			object-fit: cover;
+			border-radius: var(--border-radius);
+			vertical-align: -6px;
+		}
+
+		span {
+			display: inline;
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+	}
+}
+
+.v-list-item {
+	:deep(.v-list-item-content) {
+		flex-direction: row;
+		gap: 12px;
+	}
 }
 </style>
