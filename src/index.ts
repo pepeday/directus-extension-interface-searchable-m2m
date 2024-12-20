@@ -11,7 +11,7 @@ export default defineInterface({
 	types: ['alias'],
 	localTypes: ['m2m'],
 	group: 'relational',
-	options: ({ relations }) => {
+	options: ({ relations, field }) => {
 		return [
 			{
 				field: 'placeholder',
@@ -47,33 +47,15 @@ export default defineInterface({
 				},
 			},
 			{
-				field: 'referencingField',
-				name: '$t:corresponding_field',
-				type: 'string',
-				collection: relations.m2o?.related_collection,
-				meta: {
-					required: true,
-					width: 'full',
-					interface: 'system-field',
-					options: {
-						collectionName: relations.m2o?.related_collection,
-						allowNone: false,
-						typeAllowList: ['string', 'integer', 'bigInteger','text'],
-						allowForeignKeys: false,
-						allowPrimaryKey: true,
-					},
-				},
-			},
-			{
 				field: 'template',
-				name: '$t:template',
-				type: 'json',
+				name: '$t:display_template',
+				type: 'string',
 				meta: {
 					width: 'full',
 					interface: 'system-display-template',
-					options:{
-						collectionName: relations.m2o?.related_collection,
-					}
+					options: {
+						collectionName: relations?.o2m?.collection,
+					},
 				},
 			},
 			{
@@ -113,7 +95,7 @@ export default defineInterface({
 				meta: {
 					interface: 'system-filter',
 					options: {
-						collectionName: relations.m2o?.related_collection ?? null,
+						collectionName: relations?.o2m?.collection ?? null,
 					},
 					conditions: [
 						{
@@ -131,7 +113,7 @@ export default defineInterface({
 				field: 'sortField',
 				type: 'string',
 				name: '$t:sort_field',
-				collection: relations.m2o?.related_collection,
+				collection: relations?.o2m?.collection,
 				meta: {
 					width: 'half',
 					interface: 'system-field',

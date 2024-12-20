@@ -79,20 +79,11 @@
 				v-tooltip="t('Click to edit')" :disabled="disabled || !selectAllowed" class="link block clickable"
 				@click="openEditDrawer(item, relationInfo.junctionField.field, props)">
 				<v-list-item-content>
-
-
-
-					<!-- Field-Level Rendering -->
-					<div v-for="(field, index) in displayFields" :key="index" class="content">
-						<!-- Render HTML content -->
-						<div v-if="isHTMLString(item[relationInfo.junctionField.field][field])"
-							v-html="extractImageAndTextFromHTML(item[relationInfo.junctionField.field][field])"></div>
-
-						<!-- Render plain text -->
-						<span v-else>{{ item[relationInfo.junctionField.field][field] }}</span>
-					</div>
-
-
+					<render-template
+						:collection="relationInfo.value.junctionCollection.collection"
+						:item="item"
+						:template="templateWithDefaults"
+					/>
 				</v-list-item-content>
 
 				<v-list-item-action>
@@ -187,7 +178,26 @@ const menuActive = ref<boolean>(false);
 const suggestedItems = ref<Record<string, any>[]>([]);
 const suggestedItemsSelected = ref<number | null>(null);
 const api = useApi();
-const displayFields = props.template !== '' ? props.template.replace(/{{|}}/g, ',').split(',').filter(Boolean) : []
+const templateWithDefaults = computed(() => {
+	if (!relationInfo.value) return null;
+
+	if (props.template) return props.template;
+
+	if (relationInfo.value.junctionCollection.meta?.display_template) {
+		return relationInfo.value.junctionCollection.meta.display_template;
+	}
+
+	// Default to showing the related primary key through the junction field
+	return `{{${relationInfo.value.junctionField.field}.${relationInfo.value.relatedPrimaryKeyField.field}}}`;
+});
+
+const displayFields = computed(() => {
+	if (!relationInfo.value || !templateWithDefaults.value) return [];
+	
+	// Get fields from template, these will now be junction fields
+	return getFieldsFromTemplate(templateWithDefaults.value);
+});
+
 const fetchFields = [relationInfo.value?.relatedPrimaryKeyField.field];
 
 if (props.referencingField && props.referencingField !== relationInfo.value?.relatedPrimaryKeyField.field) {
