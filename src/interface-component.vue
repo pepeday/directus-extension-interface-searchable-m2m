@@ -242,6 +242,16 @@ async function saveEdit() {
 
 async function openEditDrawer(item, field, props) {
 	try {
+		// Check if this is a new item (no ID)
+		if (!item[field].id) {
+			editItem.value = { ...item[field] };
+			editDrawer.value = true;
+			
+			const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
+			editFields.value = schemaResponse.data.data;
+			return;
+		}
+
 		const response = await api.get(`/items/${relationInfo.value.relatedCollection.collection}/${item[field].id}`, {
 			params: {
 				fields: '*'
