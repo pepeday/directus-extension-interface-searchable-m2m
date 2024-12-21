@@ -5,19 +5,6 @@
 		{{ t('relationship_not_setup') }}
 	</v-notice>
 
-	<v-notice v-else-if="!props.referencingField" type="warning full">
-		<div>
-			<p>{{ t('display_template_not_setup') }}</p>
-			<ul>
-				<li>
-					<strong>{{ t('corresponding_field') }}</strong>
-					<span>:&nbsp;</span>
-					{{ t('errors.NOT_NULL_VIOLATION') }}
-				</li>
-			</ul>
-		</div>
-	</v-notice>
-
 	<template v-else>
 		<v-menu v-if="selectAllowed" v-model="menuActive" attached full-height>
 			<template #activator>
@@ -48,16 +35,31 @@
 				<v-divider v-if="showAddCustom && suggestedItems.length" />
 				<template v-if="suggestedItems.length">
 
-					<v-list-item v-for="(item, index) in suggestedItems"
+					<v-list-item 
+						v-for="(item, index) in suggestedItems"
 						:key="item[relationInfo.relatedPrimaryKeyField.field]"
-						:active="index === suggestedItemsSelected" clickable @click="() => stageItemObject(item)">
+						:active="index === suggestedItemsSelected" 
+						clickable 
+						@click="() => stageItemObject(item)"
+					>
 						<v-list-item-content>
-
-
-							<!-- Debugging: Render raw HTML directly -->
-							<div class="limited-content" v-html="item[props.referencingField]"></div>
+							<div class="render-template-wrapper">
+								<template v-for="field in getFieldsFromTemplate(props.template)" :key="field">
+									<div v-if="field.includes('html')" 
+										class="field" 
+										v-html="item[field.replace(relationInfo.junctionField.field + '.', '')]"
+									/>
+									<template v-else>
+										<render-template
+											v-if="relationInfo"
+											:collection="relationInfo.relatedCollection.collection"
+											:item="item"
+											:template="`{{${field.replace(relationInfo.junctionField.field + '.', '')}}}`"
+										/>
+									</template>
+								</template>
+							</div>
 						</v-list-item-content>
-
 					</v-list-item>
 
 
@@ -75,30 +77,44 @@
 		<v-skeleton-loader v-if="loading" type="block-list-item" />
 
 		<div v-else-if="items.length" class="tags">
-			<v-list-item v-for="item in items" :key="item[relationInfo.junctionField.field][props.referencingField]"
-				v-tooltip="t('Click to edit')" :disabled="disabled || !selectAllowed" class="link block clickable"
-				@click="openEditDrawer(item, relationInfo.junctionField.field, props)">
-				<v-list-item-content>
+			<template v-if="relationInfo">
+				<v-list-item 
+					v-for="item in items" 
+					:key="item[relationInfo.junctionField.field]?.[relationInfo.relatedPrimaryKeyField.field]"
+					v-tooltip="t('Click to edit')" 
+					:disabled="disabled || !selectAllowed" 
+					class="link block clickable"
+					@click="openEditDrawer(item, relationInfo.junctionField.field, props)"
+				>
+					<v-list-item-content>
+						<div class="render-template-wrapper">
+							<template v-for="field in getFieldsFromTemplate(templateWithDefaults)" :key="field">
+								<div v-if="field.includes('html')" 
+									class="field" 
+									v-html="item[relationInfo.junctionField.field][field.replace(relationInfo.junctionField.field + '.', '')]"
+								/>
+								<template v-else>
+									<render-template
+										v-if="relationInfo"
+										:collection="relationInfo.junctionCollection.collection"
+										:item="item"
+										:template="`{{${field}}}`"
+									/>
+								</template>
+							</template>
+						</div>
+					</v-list-item-content>
 
-
-
-					<!-- Field-Level Rendering -->
-					<div v-for="(field, index) in displayFields" :key="index" class="content">
-						<!-- Render HTML content -->
-						<div v-if="isHTMLString(item[relationInfo.junctionField.field][field])"
-							v-html="extractImageAndTextFromHTML(item[relationInfo.junctionField.field][field])"></div>
-
-						<!-- Render plain text -->
-						<span v-else>{{ item[relationInfo.junctionField.field][field] }}</span>
-					</div>
-
-
-				</v-list-item-content>
-
-				<v-list-item-action>
-					<v-icon class="deselect" name="close" @click.stop="deleteItem(item)" v-tooltip="t('Remove Item')" />
-				</v-list-item-action>
-			</v-list-item>
+					<v-list-item-action>
+						<v-icon 
+							class="deselect" 
+							name="close" 
+							@click.stop="deleteItem(item)" 
+							v-tooltip="t('Remove Item')" 
+						/>
+					</v-list-item-action>
+				</v-list-item>
+			</template>
 		</div>
 
 
@@ -109,7 +125,7 @@
 					<v-icon name="check" :large="true" />
 				</v-button>
 			</template>
-			<div class="layout">
+			<div class="content">
 				<v-form v-model="editItem" :collection="relationInfo.relatedCollection.collection" :fields="editFields"
 					:initial-values="editItem" />
 			</div>
@@ -121,9 +137,9 @@
 import { computed, ref, toRefs, Ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { debounce, partition } from 'lodash';
-import { Filter } from '@directus/types';
+import { Filter, LogicalFilterAND, LogicalFilterOR, FieldFilter } from '@directus/types';
 import { useApi, useStores } from '@directus/composables';
-import { parseFilter, getEndpoint } from '@directus/utils';
+import { parseFilter, getEndpoint, getFieldsFromTemplate } from '@directus/utils';
 import { useRelationM2M } from './use-relations';
 
 type RelationFK = string | number | BigInt;
@@ -142,19 +158,20 @@ const props = withDefaults(
 		allowMultiple?: boolean;
 		filter?: Filter | null;
 		referencingField: string;
+		template?: string | null;
 		sortField?: string | null;
 		sortDirection?: string | null;
 		iconLeft?: string | null;
 		iconRight?: string | null;
-		template: array | [] | null
 	}>(),
 	{
 		value: () => [],
 		disabled: false,
-		filter: () => null,
+		filter: null,
 		allowCustom: true,
 		sortDirection: 'desc',
 		iconRight: 'local_offer',
+		template: null,
 	}
 );
 
@@ -187,13 +204,65 @@ const menuActive = ref<boolean>(false);
 const suggestedItems = ref<Record<string, any>[]>([]);
 const suggestedItemsSelected = ref<number | null>(null);
 const api = useApi();
-const displayFields = props.template !== '' ? props.template.replace(/{{|}}/g, ',').split(',').filter(Boolean) : []
-const fetchFields = [relationInfo.value?.relatedPrimaryKeyField.field];
+const templateWithDefaults = computed(() => {
+	if (!relationInfo?.value?.junctionField?.field) return null;
 
-if (props.referencingField && props.referencingField !== relationInfo.value?.relatedPrimaryKeyField.field) {
-	fetchFields.push(...displayFields);
-	fetchFields.push(props.referencingField)
-}
+	// If no template is provided, use the referencing field
+	if (!props.template) {
+		return `{{${relationInfo.value.junctionField.field}.${props.referencingField}}}`;
+	}
+
+	// If the template doesn't include the junction field prefix, add it
+	if (!props.template.includes(relationInfo.value.junctionField.field + '.')) {
+		return props.template
+			.replace(/\{\{/g, '{{' + relationInfo.value.junctionField.field + '.')
+			.replace(new RegExp(`${relationInfo.value.junctionField.field}\\.${relationInfo.value.junctionField.field}\\.`, 'g'), 
+				`${relationInfo.value.junctionField.field}.`);
+	}
+
+	return props.template;
+});
+
+const displayFields = computed(() => {
+	if (!relationInfo?.value?.junctionField?.field) return [];
+
+	const fields = getFieldsFromTemplate(props.template || '');
+	
+	return fields.map(field => {
+		if (!relationInfo.value?.junctionField?.field) return field;
+		
+		if (field.startsWith(relationInfo.value.junctionField.field)) {
+			return field;
+		}
+		return `${relationInfo.value.junctionField.field}.${field}`;
+	});
+});
+
+const fetchFields = computed(() => {
+	if (!relationInfo?.value) return [];
+	
+	const fields = new Set<string>();
+	
+	// Always include primary keys
+	fields.add(relationInfo.value.relatedPrimaryKeyField.field);
+	fields.add(`${relationInfo.value.junctionField.field}.${relationInfo.value.relatedPrimaryKeyField.field}`);
+	
+	// Add template fields
+	if (props.template) {
+		const templateFields = getFieldsFromTemplate(props.template);
+		templateFields.forEach(field => {
+			// If the field is already a fully qualified path, add it as is
+			if (field.includes('.')) {
+				fields.add(field);
+			} else {
+				// Otherwise, prefix it with the junction field
+				fields.add(`${relationInfo.value.junctionField.field}.${field}`);
+			}
+		});
+	}
+	
+	return Array.from(fields);
+});
 
 const { items, loading } = usePreviews(value);
 
@@ -225,14 +294,37 @@ const editFields = ref({});
 // Save the edited item
 async function saveEdit() {
 	try {
-		console.log(props)
-		const id = editItem.value['id'];
-		await api.patch(`/items/${relationInfo.value.relatedCollection.collection}/${id}`, editItem.value);
-		items.value.forEach(item => {
-			if (item[relationInfo.value.junctionField.field].id === editItem.value.id) {
-				item[relationInfo.value.junctionField.field] = editItem.value;
+		if (!relationInfo.value) return;
+		
+		const id = editItem.value?.id;
+		let savedItem: RelationItem | null = null;
+
+		if (id) {
+			const response = await api.patch(
+				`/items/${relationInfo.value.relatedCollection.collection}/${id}`, 
+				editItem.value
+			);
+			savedItem = response.data.data;
+		} else {
+			const response = await api.post(
+				`/items/${relationInfo.value.relatedCollection.collection}`, 
+					editItem.value
+			);
+			savedItem = response.data.data;
+		}
+
+		if (!savedItem) return;
+
+		items.value = items.value.map(item => {
+			if (item[relationInfo.value!.junctionField.field].id === id) {
+				return {
+					...item,
+					[relationInfo.value!.junctionField.field]: savedItem,
+				};
 			}
+			return item;
 		});
+
 		editDrawer.value = false;
 	} catch (error) {
 		console.error('Error saving item:', error);
@@ -240,13 +332,36 @@ async function saveEdit() {
 }
 
 
-async function openEditDrawer(item, field, props) {
+async function openEditDrawer(
+	item: RelationItem,
+	field: string,
+	props: {
+		referencingField: string;
+		[key: string]: any;
+	}
+) {
 	try {
-		const response = await api.get(`/items/${relationInfo.value.relatedCollection.collection}/${item[field].id}`, {
-			params: {
-				fields: '*'
+		if (!relationInfo.value?.relatedCollection?.collection) return;
+
+		const itemId = item[field]?.id;
+		
+		if (!itemId) {
+			editItem.value = { ...item[field] };
+			editDrawer.value = true;
+			
+			const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
+			editFields.value = schemaResponse.data.data;
+			return;
+		}
+
+		const response = await api.get(
+			`/items/${relationInfo.value.relatedCollection.collection}/${itemId}`,
+			{
+				params: {
+					fields: '*'
+				}
 			}
-		});
+		);
 
 		editItem.value = response.data.data || { ...item[field] };
 		editDrawer.value = true;
@@ -259,34 +374,37 @@ async function openEditDrawer(item, field, props) {
 }
 
 
-function isHTMLString(data) {
-	const parser = new DOMParser();
-	const doc = parser.parseFromString(data, 'text/html');
-
-	// Check if the parsed content has any elements
-	return Array.from(doc.body.childNodes).some(node => node.nodeType === 1); // Node.ELEMENT_NODE === 1
-}
-
-function extractImageAndTextFromHTML(htmlContent: string): string {
-	// Remove all <img> tags using a regex
-	const strippedHtml = htmlContent.replace(/<img[^>]*>/g, '');
-	return strippedHtml;
-}
-
-function deleteItem(item: any) {
-	if (value.value && !Array.isArray(value.value)) return;
+function deleteItem(item: RelationItem) {
+	if (!value.value || !Array.isArray(value.value) || !relationInfo.value) return;
 
 	if (relationInfo.value.junctionPrimaryKeyField.field in item) {
-		emitter(value.value.filter((x: any) => x !== item[relationInfo.value.junctionPrimaryKeyField.field]));
+		emitter(value.value.filter((x) => x !== item[relationInfo.value!.junctionPrimaryKeyField.field]));
 	} else {
-		emitter(value.value.filter((x: any) => x !== item));
+		emitter(value.value.filter((x) => x !== item));
 	}
 }
 
 function stageItemObject(item: Record<string, RelationItem>) {
-	emitter([...(props.value || []), { [relationInfo.value.junctionField.field]: item }]);
-	localInput.value = ''; // Clear input after selection
-	//inputRef.value?.focus(); // Return focus to the input
+	console.log('Staging item:', item);
+	console.log('Current value:', props.value);
+	
+	if (!relationInfo.value) return;
+	
+	// Create the junction structure
+	const junctionItem = {
+		[relationInfo.value.junctionField.field]: {
+			...item,
+			[relationInfo.value.relatedPrimaryKeyField.field]: item[relationInfo.value.relatedPrimaryKeyField.field],
+		}
+	};
+	
+	console.log('Junction item:', junctionItem);
+	
+	const newValue = [...(props.value || []), junctionItem];
+	console.log('New value:', newValue);
+	
+	emitter(newValue);
+	localInput.value = '';
 }
 
 async function stageLocalInput() {
@@ -312,21 +430,15 @@ function fromSeparatedTag(input: string): string[] {
 async function stageValue(value: string) {
 	if (!value || itemValueStaged(value)) return;
 
-	const cachedItem = suggestedItems.value.find((item) => item[props.referencingField] === value);
-	if (cachedItem) {
-		stageItemObject(cachedItem);
-		return;
-	}
-
 	try {
 		const item = await findByKeyword(value);
 		if (item) {
 			stageItemObject(item);
-		} else if (createAllowed.value) {
+		} else if (createAllowed.value && props.referencingField) {
 			stageItemObject({ [props.referencingField]: value });
 		}
 	} catch (err: any) {
-		window.console.warn(err);
+		console.error('Error staging value:', err);
 	}
 }
 
@@ -341,6 +453,11 @@ function itemValueAvailable(value: string): boolean {
 }
 
 async function refreshSuggestions(keyword: string) {
+	if (!relationInfo.value || !props.referencingField) {
+		suggestedItems.value = [];
+		return;
+	}
+
 	suggestedItemsSelected.value = null;
 	if (!keyword || keyword.length < 1) {
 		suggestedItems.value = [];
@@ -348,54 +465,67 @@ async function refreshSuggestions(keyword: string) {
 	}
 
 	const currentIds = items.value
-		.map(
-			(item: RelationItem): RelationFK =>
-				item[relationInfo.value.junctionField.field][relationInfo.value.relatedPrimaryKeyField.field]
+		.map((item: RelationItem): RelationFK =>
+			item[relationInfo.value.junctionField.field]?.[relationInfo.value.relatedPrimaryKeyField.field]
 		)
 		.filter((id: RelationFK) => id === 0 || !!id);
 
-	const filters = [
-		props.filter && parseFilter(props.filter, null),
-		currentIds.length > 0 && {
+	const filters: Filter[] = [];
+
+	// Add the custom filter if it exists
+	if (props.filter) {
+		filters.push(props.filter);
+	}
+
+	// Add the current IDs filter
+	if (currentIds.length > 0) {
+		filters.push({
 			[relationInfo.value.relatedPrimaryKeyField.field]: {
-				_nin: currentIds.join(','),
+				_nin: currentIds,
 			},
-		},
-		{
-			_or: fromSeparatedTag(keyword).map((value) => {
-				return {
-					[props.referencingField]: {
-						_contains: value,
-					},
-				};
-			}),
-		},
-	].filter(Boolean);
+		});
+	}
 
-	const query = {
-		params: {
-			limit: 10,
-			fields: fetchFields,
-			filter: {
-				_and: filters,
-			},
-			...getSortingQuery(),
+	// Add the keyword search filter
+	filters.push({
+		[props.referencingField]: {
+			_contains: keyword,
 		},
-	};
+	});
 
-	const response = await api.get(getEndpoint(relationInfo.value.relatedCollection.collection), query);
-	if (response?.data?.data && Array.isArray(response.data.data)) {
-		suggestedItems.value = response.data.data;
-	} else {
+	try {
+		const response = await api.get(getEndpoint(relationInfo.value.relatedCollection.collection), {
+			params: {
+					limit: 10,
+					fields: [
+						relationInfo.value.relatedPrimaryKeyField.field,
+						props.referencingField,
+						...getFieldsFromTemplate(props.template || '')
+							.map(field => field.replace(relationInfo.value.junctionField.field + '.', '')),
+					],
+					filter: filters.length > 1 ? { _and: filters } : filters[0],
+					...getSortingQuery(),
+				},
+		});
+
+		suggestedItems.value = response?.data?.data || [];
+	} catch (error) {
+		console.error('Error fetching suggestions:', error);
 		suggestedItems.value = [];
 	}
 }
 
 async function findByKeyword(keyword: string): Promise<Record<string, any> | null> {
+	if (!relationInfo.value || !props.referencingField) return null;
+
 	const response = await api.get(getEndpoint(relationInfo.value.relatedCollection.collection), {
 		params: {
 			limit: 1,
-			fields: fetchFields,
+			fields: [
+				relationInfo.value.relatedPrimaryKeyField.field,
+				props.referencingField,
+				...(fetchFields.value || []),
+			],
 			filter: {
 				[props.referencingField]: {
 					_eq: keyword,
@@ -404,7 +534,7 @@ async function findByKeyword(keyword: string): Promise<Record<string, any> | nul
 		},
 	});
 
-	return response?.data?.data?.pop() || null;
+	return response?.data?.data?.[0] || null;
 }
 
 function usePreviews(value: Ref<RelationItem[]>) {
@@ -413,14 +543,46 @@ function usePreviews(value: Ref<RelationItem[]>) {
 
 	if (!relationInfo.value) return { items, loading };
 
-	const relationalFetchFields = [
-		relationInfo.value.junctionPrimaryKeyField.field,
-		...fetchFields.map((field) => relationInfo.value.junctionField.field + '.' + field),
-	];
+	// Get the fields we need to fetch
+	const relationalFetchFields = computed(() => {
+		if (!relationInfo.value) return [];
+		
+		const fields = new Set<string>();
+		
+		// Add junction primary key
+		fields.add(relationInfo.value.junctionPrimaryKeyField.field);
+		
+		// Add all fetch fields
+		fetchFields.value.forEach(field => {
+			// Check if the field contains a function (starts with $)
+			if (field.includes('.$')) {
+				// For thumbnail fields, we need to keep the full path
+				fields.add(field);
+			} else if (field.includes('.')) {
+				// For regular nested fields
+				fields.add(field);
+			} else {
+				// For top-level fields
+				fields.add(field);
+			}
+		});
+		
+		// Convert to array and format for API request
+		const formattedFields = Array.from(fields).map(field => {
+			// If it's a nested field with a function (like $thumbnail)
+			if (field.includes('.$')) {
+				const [path, func] = field.split('.$');
+				return `${path}.$${func}`;
+			}
+			return field;
+		});
+		
+		return formattedFields;
+	});
 
 	watch(
 		value,
-		debounce((value: RelationItem[]) => update(value), 300)
+		debounce((newValue: RelationItem[]) => update(newValue), 300)
 	);
 
 	if (value.value && Array.isArray(value.value)) {
@@ -450,32 +612,48 @@ function usePreviews(value: Ref<RelationItem[]>) {
 		}
 
 		loading.value = true;
-		const response = await api.get(getEndpoint(relationInfo.value.junctionCollection.collection), {
-			params: {
-				fields: relationalFetchFields,
-				limit: ids.length,
-				filter: {
-					id: {
-						_in: ids,
+		try {
+			const response = await api.get(getEndpoint(relationInfo.value.junctionCollection.collection), {
+				params: {
+					fields: relationalFetchFields.value,
+					limit: ids.length,
+					filter: {
+						id: {
+							_in: ids.join(','),
+						},
 					},
+					deep: {
+						[relationInfo.value.junctionField.field]: {
+							_filter: {}
+						}
+					},
+					...getSortingQuery(relationInfo.value.junctionField.field),
 				},
-				...getSortingQuery(relationInfo.value.junctionField.field),
-			},
-		});
+			});
 
-		if (response?.data?.data && Array.isArray(response.data.data)) {
-			items.value = [...response.data.data, ...staged];
-		} else {
+			if (response?.data?.data && Array.isArray(response.data.data)) {
+				items.value = [...response.data.data, ...staged];
+			} else {
+				items.value = [...staged];
+			}
+		} catch (error) {
+			console.error('Error fetching items:', error);
 			items.value = [...staged];
+		} finally {
+			loading.value = false;
 		}
-
-		loading.value = false;
 	}
 }
 
 function getSortingQuery(path?: string): Object {
-	const fieldName = props.sortField ? props.sortField : relationInfo.value.relatedPrimaryKeyField.field;
+	if (!relationInfo.value) return {};
+	
+	const fieldName = props.sortField 
+		? props.sortField 
+		: relationInfo.value.relatedPrimaryKeyField.field;
+		
 	const field = path ? `${path}.${fieldName}` : fieldName;
+	
 	return {
 		sort: props.sortDirection === 'desc' ? `-${field}` : field,
 	};
@@ -546,13 +724,10 @@ async function onInputKeyDown(event: KeyboardEvent) {
 }
 </script>
 
-<style scoped>
-.add-custom {
-	font-style: oblique;
-}
-
-.no-items {
-	color: var(--foreground-subdued);
+<style lang="scss" scoped>
+.content {
+	padding: var(--content-padding);
+	padding-top: 0;
 }
 
 .tags {
@@ -560,59 +735,51 @@ async function onInputKeyDown(event: KeyboardEvent) {
 	flex-wrap: wrap;
 	align-items: center;
 	justify-content: flex-start;
-	padding: 4px 0;
+	padding: var(--v-list-padding);
+	gap: var(--v-list-item-padding);
 	width: 100%;
 }
 
-.tag {
-	flex: 1 1 100%;
-	margin-top: 8px;
-	cursor: pointer;
-	box-sizing: border-box;
-
-	--v-chip-background-color: var(--theme--primary);
-	--v-chip-color: var(--foreground-inverted);
-	--v-chip-background-color-hover: var(--theme--primary);
-	--v-chip-close-color: var(--theme--primary);
-	--v-chip-close-color-hover: var(--white);
-	transition: all var(--fast) var(--transition);
-}
-
-.tag:hover {
-	--v-chip-close-color: var(--white);
-}
-
-::v-deep .v-chip .chip-content {
-	width: 100% !important;
-	justify-content: space-between !important;
-	display: flex !important;
-	align-items: center !important;
-	padding: 7px;
-	font-size: 16px;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.v-chip.label {
+.render-template-wrapper {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
 	width: 100%;
-	display: block;
-	background-color: white;
-	color: #4f5464;
-	border: 2px solid #e4eaf1;
-	height: auto;
-	box-sizing: border-box;
 }
 
-.layout {
-	padding: 10px 0 0 40px;
+.field {
+	display: inline-flex;
+	max-width: 100%;
+
+	:deep(img) {
+		max-height: 40px;
+		width: auto;
+		vertical-align: middle;
+		border-radius: 4px;
+		margin: 4px;
+	}
+
+	:deep(p) {
+		margin: 0;
+		display: inline;
+	}
 }
 
-::v-deep(.limited-content img) {
-	max-height: 40px;
-	max-height: 40px;
-	object-fit: cover;
-	border-radius: 8px;
+:deep(.render-template-wrapper) {
+	.field p img {
+		max-height: 40px !important;
+		border-radius: 4px;
+		vertical-align: middle;
+		width: auto !important;
+		object-fit: contain;
+		margin: 0px 4px;
+	}
+}
 
+.v-list-item {
+	:deep(.v-list-item-content) {
+		flex-direction: row;
+		gap: 12px;
+	}
 }
 </style>

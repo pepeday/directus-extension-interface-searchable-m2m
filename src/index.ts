@@ -26,6 +26,33 @@ export default defineInterface({
 				},
 			},
 			{
+				field: 'referencingField',
+				name: '$t:corresponding_field',
+				type: 'string',
+				meta: {
+					width: 'full',
+					required: true,
+					interface: 'system-field',
+					options: {
+						collectionName: relations.m2o?.related_collection,
+						typeAllowList: ['string', 'text', 'integer', 'bigInteger'],
+						allowPrimaryKey: true,
+					},
+				},
+			},
+			{
+				field: 'template',
+				name: '$t:display_template',
+				type: 'string',
+				meta: {
+					width: 'full',
+					interface: 'system-display-template',
+					options: {
+						collectionName: relations.m2o?.collection,
+					},
+				},
+			},
+			{
 				field: 'iconLeft',
 				name: '$t:icon_left',
 				type: 'string',
@@ -44,36 +71,6 @@ export default defineInterface({
 				},
 				schema: {
 					default_value: 'local_offer',
-				},
-			},
-			{
-				field: 'referencingField',
-				name: '$t:corresponding_field',
-				type: 'string',
-				collection: relations.m2o?.related_collection,
-				meta: {
-					required: true,
-					width: 'full',
-					interface: 'system-field',
-					options: {
-						collectionName: relations.m2o?.related_collection,
-						allowNone: false,
-						typeAllowList: ['string', 'integer', 'bigInteger','text'],
-						allowForeignKeys: false,
-						allowPrimaryKey: true,
-					},
-				},
-			},
-			{
-				field: 'template',
-				name: '$t:template',
-				type: 'json',
-				meta: {
-					width: 'full',
-					interface: 'system-display-template',
-					options:{
-						collectionName: relations.m2o?.related_collection,
-					}
 				},
 			},
 			{
