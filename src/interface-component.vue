@@ -20,58 +20,60 @@
 				</v-input>
 			</template>
 
-			<v-list v-if="!disabled && (showAddCustom || suggestedItems.length)">
-				<v-list-item v-if="showAddCustom" clickable @click="stageLocalInput">
-					<v-list-item-content v-tooltip="t('interfaces.tags.add_tags')" class="add-custom">
-						{{
-							t('field_in_collection', {
-								field: localInput,
-								collection: isMulti ? t('select_all') : t('create_item'),
-							})
-						}}
-					</v-list-item-content>
-				</v-list-item>
-
-				<v-divider v-if="showAddCustom && suggestedItems.length" />
-				<template v-if="suggestedItems.length">
-
-					<v-list-item 
-						v-for="(item, index) in suggestedItems"
-						:key="item[relationInfo.relatedPrimaryKeyField.field]"
-						:active="index === suggestedItemsSelected" 
-						clickable 
-						@click="() => stageItemObject(item)"
-					>
-						<v-list-item-content>
-							<div class="render-template-wrapper">
-								<template v-for="field in getFieldsFromTemplate(props.template)" :key="field">
-									<div v-if="field.includes('html') && item[field.replace(relationInfo.junctionField.field + '.', '')]" 
-										class="field" 
-										v-html="item[field.replace(relationInfo.junctionField.field + '.', '')]"
-									/>
-									<template v-else>
-										<render-template
-											v-if="relationInfo && item"
-											:collection="relationInfo.relatedCollection.collection"
-											:item="item"
-											:template="`{{${field.replace(relationInfo.junctionField.field + '.', '')}}}`"
-										/>
-									</template>
-								</template>
-							</div>
+			<div class="menu-list">
+				<v-list v-if="!disabled && (showAddCustom || suggestedItems.length)">
+					<v-list-item v-if="showAddCustom" clickable @click="stageLocalInput">
+						<v-list-item-content v-tooltip="t('interfaces.tags.add_tags')" class="add-custom">
+							{{
+								t('field_in_collection', {
+									field: localInput,
+									collection: isMulti ? t('select_all') : t('create_item'),
+								})
+							}}
 						</v-list-item-content>
 					</v-list-item>
 
+					<v-divider v-if="showAddCustom && suggestedItems.length" />
+					<template v-if="suggestedItems.length">
+
+						<v-list-item 
+							v-for="(item, index) in suggestedItems"
+							:key="item[relationInfo.relatedPrimaryKeyField.field]"
+							:active="index === suggestedItemsSelected" 
+							clickable 
+							@click="() => stageItemObject(item)"
+						>
+							<v-list-item-content>
+								<div class="render-template-wrapper">
+									<template v-for="field in getFieldsFromTemplate(props.template)" :key="field">
+										<div v-if="field.includes('html') && item[field.replace(relationInfo.junctionField.field + '.', '')]" 
+											class="field" 
+											v-html="item[field.replace(relationInfo.junctionField.field + '.', '')]"
+										/>
+										<template v-else>
+											<render-template
+												v-if="relationInfo && item"
+												:collection="relationInfo.relatedCollection.collection"
+												:item="item"
+												:template="`{{${field.replace(relationInfo.junctionField.field + '.', '')}}}`"
+											/>
+										</template>
+									</template>
+								</div>
+							</v-list-item-content>
+						</v-list-item>
 
 
-				</template>
-			</v-list>
 
-			<v-list v-else-if="!disabled && localInput && !createAllowed">
-				<v-list-item class="no-items">
-					{{ t('no_items') }}
-				</v-list-item>
-			</v-list>
+					</template>
+				</v-list>
+
+				<v-list v-else-if="!disabled && localInput && !createAllowed">
+					<v-list-item class="no-items">
+						{{ t('no_items') }}
+					</v-list-item>
+				</v-list>
+			</div>
 		</v-menu>
 
 		<v-skeleton-loader v-if="loading" type="block-list-item" />
@@ -308,55 +310,50 @@ async function saveEdit() {
 	try {
 		if (!relationInfo.value) return;
 		
-		const id = editItem.value?.id;
+		const junctionId = editItem.value?.junction_id;
 		const junctionField = relationInfo.value.junctionField.field;
 		
-		// Create new staged changes object
 		const newStagedChanges = {
 			create: [...stagedChanges.value.create],
 			update: [...stagedChanges.value.update],
 			delete: [...stagedChanges.value.delete]
 		};
 
-		// Check if this is a staged (created) item
 		const createdItemIndex = newStagedChanges.create.findIndex(
-			item => item[junctionField][relationInfo.value.relatedPrimaryKeyField.field] === id
+			item => item[junctionField][relationInfo.value.relatedPrimaryKeyField.field] === editItem.value?.id
 		);
 
 		if (createdItemIndex !== -1) {
-			// Update the item in the create array
 			newStagedChanges.create[createdItemIndex] = {
 				[junctionField]: {
 					...newStagedChanges.create[createdItemIndex][junctionField],
 					...editItem.value
 				}
 			};
-		} else if (id) {
-			// Handle existing item updates as before
-			const updateIndex = newStagedChanges.update.findIndex(update => update.id === id);
+		} else if (junctionId) {
+			const updateIndex = newStagedChanges.update.findIndex(update => update.id === junctionId);
 			if (updateIndex !== -1) {
 				newStagedChanges.update.splice(updateIndex, 1);
 			}
 			
+			const { junction_id, ...editData } = editItem.value;
+			
 			newStagedChanges.update.push({
-				id,
-				[junctionField]: editItem.value
+				id: junctionId,
+				[junctionField]: editData
 			});
 		}
 		
-		// Emit the new staged changes
-		console.log('New staged changes after edit:', newStagedChanges);
+		console.log('Staged changes:', JSON.stringify(newStagedChanges, null, 2));
 		emit('input', newStagedChanges);
 		
 		// Update display items locally
 		displayItems.value = displayItems.value.map(item => {
-			if (item[relationInfo.value.junctionPrimaryKeyField.field] === id) {
+			if (item[relationInfo.value.junctionPrimaryKeyField.field] === junctionId) {
+				const { junction_id, ...editData } = editItem.value;
 				return {
 					...item,
-					[junctionField]: {
-						...item[junctionField],
-						...editItem.value
-					}
+					[junctionField]: editData
 				};
 			}
 			return item;
@@ -364,10 +361,9 @@ async function saveEdit() {
 		
 		editDrawer.value = false;
 	} catch (error) {
-		console.error('Error saving item:', error);
+		console.error('Error saving item:', JSON.stringify(error));
 	}
 }
-
 
 async function openEditDrawer(
 	item: RelationItem,
@@ -380,9 +376,10 @@ async function openEditDrawer(
 	try {
 		if (!relationInfo.value?.relatedCollection?.collection) return;
 
-		const itemId = item[field]?.id;
+		const junctionId = item[relationInfo.value.junctionPrimaryKeyField.field];
+		const relatedItemId = item[field]?.id;
 		
-		if (!itemId) {
+		if (!relatedItemId) {
 			editItem.value = { ...item[field] };
 			editDrawer.value = true;
 			
@@ -392,10 +389,13 @@ async function openEditDrawer(
 		}
 
 		// Check if there are staged updates for this item
-		const stagedUpdate = stagedChanges.value.update.find(update => update.id === itemId);
+		const stagedUpdate = stagedChanges.value.update.find(update => update.id === junctionId);
 		if (stagedUpdate) {
-			// Use the staged values
-			editItem.value = stagedUpdate[field];
+			// Use the staged values and preserve the junction_id
+			editItem.value = {
+				...stagedUpdate[field],
+				junction_id: junctionId
+			};
 			editDrawer.value = true;
 			
 			const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
@@ -405,7 +405,7 @@ async function openEditDrawer(
 
 		// If no staged changes, fetch from API
 		const response = await api.get(
-			`/items/${relationInfo.value.relatedCollection.collection}/${itemId}`,
+			`/items/${relationInfo.value.relatedCollection.collection}/${relatedItemId}`,
 			{
 				params: {
 					fields: '*'
@@ -413,39 +413,36 @@ async function openEditDrawer(
 			}
 		);
 
-		editItem.value = response.data.data || { ...item[field] };
+		editItem.value = {
+			...response.data.data,
+			junction_id: junctionId
+		};
 		editDrawer.value = true;
 
 		const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
+		
 		editFields.value = schemaResponse.data.data;
 	} catch (error) {
-		console.error('Error fetching item data:', error);
+		console.error('Error fetching item data:', JSON.stringify(error));
 	}
 }
-
 
 function deleteItem(item: RelationItem) {
 	if (!relationInfo.value) return;
 	
-	console.log('Deleting item:', item);
-	
 	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
-	const junctionField = relationInfo.value.junctionField.field;
-	const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
 	
-	// Create new staged changes object
 	const newStagedChanges = {
 		create: [...stagedChanges.value.create],
 		update: [...stagedChanges.value.update],
 		delete: [...stagedChanges.value.delete]
 	};
 	
-	// If it's an existing item, add to delete array
 	if (item[junctionPkField]) {
 		newStagedChanges.delete.push(item[junctionPkField]);
 	}
 	
-	console.log('New staged changes:', newStagedChanges);
+	console.log('Delete staged changes:', JSON.stringify(newStagedChanges, null, 2));
 	emit('input', newStagedChanges);
 }
 
@@ -814,6 +811,7 @@ async function consolidateDisplay() {
 	padding: var(--v-list-padding);
 	gap: var(--v-list-item-padding);
 	width: 100%;
+	margin-top: 8px;
 }
 
 .render-template-wrapper {
@@ -856,6 +854,12 @@ async function consolidateDisplay() {
 	:deep(.v-list-item-content) {
 		flex-direction: row;
 		gap: 12px;
+	}
+}
+
+.menu-list {
+	:deep(.v-menu__content) {
+		padding-top: 8px;
 	}
 }
 </style>
