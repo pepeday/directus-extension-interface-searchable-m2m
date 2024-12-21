@@ -15,6 +15,13 @@
 					</template>
 
 					<template #append>
+						<v-icon 
+							v-if="createAllowed" 
+							name="add" 
+							clickable 
+							@click.stop="openEditDrawer(null, null, props)" 
+							v-tooltip="t('create_item')"
+						/>
 						<v-icon v-if="iconRight" :name="iconRight" />
 					</template>
 				</v-input>
@@ -318,30 +325,40 @@ async function saveEdit() {
 			delete: [...stagedChanges.value.delete]
 		};
 
-		// Check if this is a staged (created) item
-		const createdItemIndex = newStagedChanges.create.findIndex(
-			item => item[junctionField][relationInfo.value.relatedPrimaryKeyField.field] === id
-		);
-
-		if (createdItemIndex !== -1) {
-			// Update the item in the create array
-			newStagedChanges.create[createdItemIndex] = {
+		// If there's no ID, this is a new item
+		if (!id) {
+			newStagedChanges.create.push({
 				[junctionField]: {
-					...newStagedChanges.create[createdItemIndex][junctionField],
-					...editItem.value
+					...editItem.value,
+					html: editItem.value.html || '',
+					status: editItem.value.status || 'draft',
+					severity: editItem.value.severity || 'low'
 				}
-			};
-		} else if (id) {
-			// Handle existing item updates as before
-			const updateIndex = newStagedChanges.update.findIndex(update => update.id === id);
-			if (updateIndex !== -1) {
-				newStagedChanges.update.splice(updateIndex, 1);
-			}
-			
-			newStagedChanges.update.push({
-				id,
-				[junctionField]: editItem.value
 			});
+		} else {
+			// Handle existing items as before...
+			const createdItemIndex = newStagedChanges.create.findIndex(
+				item => item[junctionField][relationInfo.value.relatedPrimaryKeyField.field] === id
+			);
+
+			if (createdItemIndex !== -1) {
+				newStagedChanges.create[createdItemIndex] = {
+					[junctionField]: {
+						...newStagedChanges.create[createdItemIndex][junctionField],
+						...editItem.value
+					}
+				};
+			} else {
+				const updateIndex = newStagedChanges.update.findIndex(update => update.id === id);
+				if (updateIndex !== -1) {
+					newStagedChanges.update.splice(updateIndex, 1);
+				}
+				
+				newStagedChanges.update.push({
+					id,
+					[junctionField]: editItem.value
+				});
+			}
 		}
 		
 		// Emit the new staged changes
@@ -349,18 +366,26 @@ async function saveEdit() {
 		emit('input', newStagedChanges);
 		
 		// Update display items locally
-		displayItems.value = displayItems.value.map(item => {
-			if (item[relationInfo.value.junctionPrimaryKeyField.field] === id) {
-				return {
-					...item,
-					[junctionField]: {
-						...item[junctionField],
-						...editItem.value
-					}
-				};
-			}
-			return item;
-		});
+		if (!id) {
+			// Add new item to display
+			displayItems.value.push({
+				[junctionField]: editItem.value
+			});
+		} else {
+			// Update existing item
+			displayItems.value = displayItems.value.map(item => {
+				if (item[relationInfo.value.junctionPrimaryKeyField.field] === id) {
+					return {
+						...item,
+						[junctionField]: {
+							...item[junctionField],
+							...editItem.value
+						}
+					};
+				}
+				return item;
+			});
+		}
 		
 		editDrawer.value = false;
 	} catch (error) {
@@ -370,8 +395,8 @@ async function saveEdit() {
 
 
 async function openEditDrawer(
-	item: RelationItem,
-	field: string,
+	item: RelationItem | null,
+	field: string | null,
 	props: {
 		referencingField: string;
 		[key: string]: any;
@@ -379,6 +404,21 @@ async function openEditDrawer(
 ) {
 	try {
 		if (!relationInfo.value?.relatedCollection?.collection) return;
+
+		// If no item is provided, we're creating a new one
+		if (!item || !field) {
+			editItem.value = {
+				// Initialize with default values
+				html: '',
+				status: 'draft',
+				severity: 'low'
+			};
+			editDrawer.value = true;
+			
+			const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
+			editFields.value = schemaResponse.data.data;
+			return;
+		}
 
 		const itemId = item[field]?.id;
 		
@@ -814,6 +854,7 @@ async function consolidateDisplay() {
 	padding: var(--v-list-padding);
 	gap: var(--v-list-item-padding);
 	width: 100%;
+	margin-top: var(--v-list-item-padding);
 }
 
 .render-template-wrapper {
