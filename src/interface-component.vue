@@ -80,7 +80,6 @@
 
 		<div v-else-if="displayItems.length" class="tags">
 			<template v-if="relationInfo">
-				{{ console.log('Rendering items:', displayItems) }}
 				<v-list-item 
 					v-for="item in displayItems" 
 					:key="item[relationInfo.junctionField.field]?.[relationInfo.relatedPrimaryKeyField.field]"
@@ -377,24 +376,29 @@ async function openEditDrawer(
 		if (!relationInfo.value?.relatedCollection?.collection) return;
 
 		const junctionId = item[relationInfo.value.junctionPrimaryKeyField.field];
-		const relatedItemId = item[field]?.id;
+		const junctionField = relationInfo.value.junctionField.field;
 		
-		if (!relatedItemId) {
-			editItem.value = { ...item[field] };
+		// First check staged updates
+		const stagedUpdate = stagedChanges.value.update.find(update => update.id === junctionId);
+		if (stagedUpdate) {
+			editItem.value = {
+				...item[junctionField],
+				...stagedUpdate[junctionField],
+				junction_id: junctionId
+			};
 			editDrawer.value = true;
 			
 			const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
 			editFields.value = schemaResponse.data.data;
 			return;
 		}
-
-		// Check if there are staged updates for this item
-		const stagedUpdate = stagedChanges.value.update.find(update => update.id === junctionId);
-		if (stagedUpdate) {
-			// Use the staged values and preserve the junction_id
+		
+		// Check if this is a staged created item
+		const isCreatedItem = !junctionId && item[junctionField];
+		if (isCreatedItem) {
 			editItem.value = {
-				...stagedUpdate[field],
-				junction_id: junctionId
+				...item[junctionField],
+				junction_id: null
 			};
 			editDrawer.value = true;
 			
@@ -404,19 +408,28 @@ async function openEditDrawer(
 		}
 
 		// If no staged changes, fetch from API
-		const response = await api.get(
-			`/items/${relationInfo.value.relatedCollection.collection}/${relatedItemId}`,
-			{
-				params: {
-					fields: '*'
+		const relatedItemId = item[field]?.id;
+		if (relatedItemId) {
+			const response = await api.get(
+				`/items/${relationInfo.value.relatedCollection.collection}/${relatedItemId}`,
+				{
+					params: {
+						fields: '*'
+					}
 				}
-			}
-		);
+			);
 
-		editItem.value = {
-			...response.data.data,
-			junction_id: junctionId
-		};
+			editItem.value = {
+				...response.data.data,
+				junction_id: junctionId
+			};
+		} else {
+			editItem.value = {
+				...item[field],
+				junction_id: junctionId
+			};
+		}
+		
 		editDrawer.value = true;
 
 		const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
@@ -470,7 +483,7 @@ function stageItemObject(item: Record<string, RelationItem>) {
 		}
 	});
 	
-	console.log('New staged changes:', newStagedChanges);
+	console.log('New staged changes:', JSON.stringify(newStagedChanges, null, 2));
 	emit('input', newStagedChanges);
 	localInput.value = '';
 }
@@ -507,7 +520,7 @@ async function stageValue(value: string) {
 			stageItemObject({ [props.referencingField]: value });
 		}
 	} catch (err: any) {
-		console.error('Error staging value:', err);
+		console.error('Error staging value:', JSON.stringify(err));
 	}
 }
 
@@ -585,7 +598,7 @@ async function refreshSuggestions(keyword: string) {
 
 		suggestedItems.value = response?.data?.data || [];
 	} catch (error) {
-		console.error('Error fetching suggestions:', error);
+		console.error('Error fetching suggestions:', JSON.stringify(error));
 		suggestedItems.value = [];
 	}
 }
@@ -615,7 +628,7 @@ async function findByKeyword(keyword: string): Promise<Record<string, any> | nul
 const { loading } = usePreviews(value);
 
 watch(displayItems, (newItems) => {
-	console.log('DisplayItems changed:', newItems);
+	console.log('DisplayItems changed:', JSON.stringify(newItems));
 }, { deep: true });
 
 function getSortingQuery(path?: string): Object {
@@ -704,7 +717,7 @@ function usePreviews(value: Ref<RelationItem[] | StagedChanges>) {
 	watch(
 		value,
 		async (newValue) => {
-			console.log('Value changed:', newValue);
+			console.log('Value changed:', JSON.stringify(newValue));
 			
 			if (!newValue) return;
 			
@@ -724,23 +737,28 @@ function usePreviews(value: Ref<RelationItem[] | StagedChanges>) {
 }
 
 watch(value, (newValue) => {
-	console.log('Value changed:', newValue);
+	console.log('Value changed:', JSON.stringify(newValue));
 });
 
 watch(displayItems, (newValue) => {
-	console.log('DisplayItems changed:', newValue);
+	console.log('DisplayItems changed:', JSON.stringify(newValue));
 });
 
 watch(relationInfo, (newValue) => {
-	console.log('RelationInfo changed:', newValue);
+	console.log('RelationInfo changed:', JSON.stringify(newValue));
 });
 
 // Function to load items by IDs
 async function loadItems(ids: (string | number)[]) {
-	if (!relationInfo.value || !ids.length) return;
+	if (!relationInfo.value || !ids.length) {
+		console.log('loadItems - No items to load, clearing displayItems');
+		displayItems.value = [];
+		return;
+	}
 	
 	loading.value = true;
 	try {
+		console.log('loadItems - Loading items for IDs:', JSON.stringify(ids));
 		const response = await api.get(getEndpoint(relationInfo.value.junctionCollection.collection), {
 			params: {
 				fields: fetchFields.value,
@@ -758,10 +776,11 @@ async function loadItems(ids: (string | number)[]) {
 		});
 
 		if (response?.data?.data) {
+			console.log('loadItems - Received data:', response.data.data);
 			displayItems.value = response.data.data;
 		}
 	} catch (error) {
-		console.error('Error loading items:', error);
+		console.error('Error loading items:', JSON.stringify(error));
 	} finally {
 		loading.value = false;
 	}
@@ -769,13 +788,39 @@ async function loadItems(ids: (string | number)[]) {
 
 // Function to consolidate current items with staged changes
 async function consolidateDisplay() {
-	// Start with current items
+	console.log('consolidateDisplay - Starting with displayItems:', JSON.stringify(displayItems.value));
+	
 	await loadItems(currentIds.value);
 	
 	if (!relationInfo.value) return;
 	
+	console.log('consolidateDisplay - After loadItems:', displayItems.value);
+	console.log('consolidateDisplay - Current staged changes:', stagedChanges.value);
+	
 	const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
 	const junctionField = relationInfo.value.junctionField.field;
+	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
+	
+	// First remove deleted items
+	displayItems.value = displayItems.value.filter(
+		item => !stagedChanges.value.delete.includes(item[junctionPkField])
+	);
+	
+	// Apply updates
+	stagedChanges.value.update.forEach(update => {
+		const index = displayItems.value.findIndex(
+			item => item[junctionPkField] === update.id
+		);
+		if (index !== -1) {
+			displayItems.value[index] = {
+				...displayItems.value[index],
+				[junctionField]: {
+					...displayItems.value[index][junctionField],
+					...update[junctionField]
+				}
+			};
+		}
+	});
 	
 	// Keep track of items we've already added to prevent duplicates
 	const addedItemIds = new Set(
@@ -793,23 +838,7 @@ async function consolidateDisplay() {
 		}
 	});
 	
-	// Apply updates
-	stagedChanges.value.update.forEach(update => {
-		const index = displayItems.value.findIndex(
-			item => item[relationInfo.value.junctionPrimaryKeyField.field] === update.id
-		);
-		if (index !== -1) {
-			displayItems.value[index] = {
-				...displayItems.value[index],
-				...update
-			};
-		}
-	});
-	
-	// Remove deleted items
-	displayItems.value = displayItems.value.filter(
-		item => !stagedChanges.value.delete.includes(item[relationInfo.value.junctionPrimaryKeyField.field])
-	);
+	console.log('consolidateDisplay - Final displayItems:', displayItems.value);
 }
 
 // Add a watch on the primaryKey to detect when the parent item is saved
@@ -836,7 +865,7 @@ watch(
 watch(
 	value,
 	async (newValue) => {
-		console.log('Value changed:', newValue);
+		console.log('Value changed:', JSON.stringify(newValue));
 		
 		if (!newValue) {
 			// Reset everything when value is cleared
