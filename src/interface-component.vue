@@ -772,9 +772,25 @@ async function consolidateDisplay() {
 	// Start with current items
 	await loadItems(currentIds.value);
 	
-	// Add created items
+	if (!relationInfo.value) return;
+	
+	const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
+	const junctionField = relationInfo.value.junctionField.field;
+	
+	// Keep track of items we've already added to prevent duplicates
+	const addedItemIds = new Set(
+		displayItems.value.map(item => 
+			item[junctionField]?.[relatedPkField]
+		)
+	);
+	
+	// Add created items (only if not already in display items)
 	stagedChanges.value.create.forEach(item => {
-		displayItems.value.push(item);
+		const itemId = item[junctionField]?.[relatedPkField];
+		if (!addedItemIds.has(itemId)) {
+			displayItems.value.push(item);
+			addedItemIds.add(itemId);
+		}
 	});
 	
 	// Apply updates
@@ -795,6 +811,55 @@ async function consolidateDisplay() {
 		item => !stagedChanges.value.delete.includes(item[relationInfo.value.junctionPrimaryKeyField.field])
 	);
 }
+
+// Add a watch on the primaryKey to detect when the parent item is saved
+watch(
+	() => props.primaryKey,
+	async (newKey, oldKey) => {
+		if (newKey && newKey !== oldKey) {
+			// Reset staged changes since the parent item was saved
+			stagedChanges.value = {
+				create: [],
+				update: [],
+				delete: []
+			};
+			
+			// Reload the actual items from the database
+			if (Array.isArray(value.value)) {
+				await loadItems(value.value);
+			}
+		}
+	}
+);
+
+// Modify the existing watch on value to handle the reset case
+watch(
+	value,
+	async (newValue) => {
+		console.log('Value changed:', newValue);
+		
+		if (!newValue) {
+			// Reset everything when value is cleared
+			displayItems.value = [];
+			currentIds.value = [];
+			stagedChanges.value = {
+				create: [],
+				update: [],
+				delete: []
+			};
+			return;
+		}
+		
+		if (Array.isArray(newValue)) {
+			currentIds.value = newValue;
+			await loadItems(newValue);
+		} 
+		else if ('create' in newValue) {
+			stagedChanges.value = newValue;
+			await consolidateDisplay();
+		}
+	}
+);
 </script>
 
 <style lang="scss" scoped>
