@@ -78,7 +78,11 @@
 
 		<v-skeleton-loader v-if="loading" type="block-list-item" />
 
-		<div v-else-if="displayItems.length" class="tags">
+		<transition-group v-else-if="displayItems.length" 
+			name="list" 
+			tag="div" 
+			class="tags"
+		>
 			<template v-if="relationInfo">
 				<v-list-item 
 					v-for="item in displayItems" 
@@ -117,7 +121,7 @@
 					</v-list-item-action>
 				</v-list-item>
 			</template>
-		</div>
+		</transition-group>
 
 
 
@@ -312,24 +316,51 @@ async function saveEdit() {
 		const junctionId = editItem.value?.junction_id;
 		const junctionField = relationInfo.value.junctionField.field;
 		
+		console.log('saveEdit - Starting edit with:', JSON.stringify({
+			junctionId,
+			editItem: editItem.value,
+			stagedChanges: stagedChanges.value
+		}, null, 2));
+
 		const newStagedChanges = {
 			create: [...stagedChanges.value.create],
 			update: [...stagedChanges.value.update],
 			delete: [...stagedChanges.value.delete]
 		};
 
-		const createdItemIndex = newStagedChanges.create.findIndex(
-			item => item[junctionField][relationInfo.value.relatedPrimaryKeyField.field] === editItem.value?.id
-		);
+		if (!junctionId) {
+			// For newly created items, find the matching item in displayItems
+			const displayItemIndex = displayItems.value.findIndex(
+				item => !item[relationInfo.value.junctionPrimaryKeyField.field] && 
+					   item[junctionField].name === stagedChanges.value.create[stagedChanges.value.create.length - 1][junctionField].name
+			);
 
-		if (createdItemIndex !== -1) {
-			newStagedChanges.create[createdItemIndex] = {
-				[junctionField]: {
-					...newStagedChanges.create[createdItemIndex][junctionField],
-					...editItem.value
+			console.log('saveEdit - Created item match:', JSON.stringify({
+				displayItemIndex,
+				matchAttempt: {
+					lookingFor: 'last created item',
+					displayItems: displayItems.value,
+					createItems: stagedChanges.value.create
 				}
-			};
-		} else if (junctionId) {
+			}, null, 2));
+
+			if (displayItemIndex !== -1) {
+				// Update both the staged changes and display items
+				newStagedChanges.create[newStagedChanges.create.length - 1] = {
+					[junctionField]: {
+						...editItem.value
+					}
+				};
+
+				// Update display items immediately
+				displayItems.value[displayItemIndex] = {
+					[junctionField]: {
+						...editItem.value
+					}
+				};
+			}
+		} else {
+			// Handle existing items
 			const updateIndex = newStagedChanges.update.findIndex(update => update.id === junctionId);
 			if (updateIndex !== -1) {
 				newStagedChanges.update.splice(updateIndex, 1);
@@ -343,21 +374,8 @@ async function saveEdit() {
 			});
 		}
 		
-		console.log('Staged changes:', JSON.stringify(newStagedChanges, null, 2));
+		console.log('saveEdit - Emitting changes:', JSON.stringify(newStagedChanges, null, 2));
 		emit('input', newStagedChanges);
-		
-		// Update display items locally
-		displayItems.value = displayItems.value.map(item => {
-			if (item[relationInfo.value.junctionPrimaryKeyField.field] === junctionId) {
-				const { junction_id, ...editData } = editItem.value;
-				return {
-					...item,
-					[junctionField]: editData
-				};
-			}
-			return item;
-		});
-		
 		editDrawer.value = false;
 	} catch (error) {
 		console.error('Error saving item:', JSON.stringify(error));
@@ -433,7 +451,6 @@ async function openEditDrawer(
 		editDrawer.value = true;
 
 		const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
-		
 		editFields.value = schemaResponse.data.data;
 	} catch (error) {
 		console.error('Error fetching item data:', JSON.stringify(error));
@@ -453,37 +470,41 @@ function deleteItem(item: RelationItem) {
 	
 	if (item[junctionPkField]) {
 		newStagedChanges.delete.push(item[junctionPkField]);
+		
+		// Remove item from displayItems immediately
+		displayItems.value = displayItems.value.filter(
+			displayItem => displayItem[junctionPkField] !== item[junctionPkField]
+		);
 	}
 	
-	console.log('Delete staged changes:', JSON.stringify(newStagedChanges, null, 2));
 	emit('input', newStagedChanges);
 }
 
 function stageItemObject(item: Record<string, RelationItem>) {
 	if (!relationInfo.value) return;
 	
-	console.log('Staging item:', item);
-	
 	const junctionField = relationInfo.value.junctionField.field;
 	
-	// Create new staged changes object
 	const newStagedChanges = {
 		create: [...stagedChanges.value.create],
 		update: [...stagedChanges.value.update],
 		delete: [...stagedChanges.value.delete]
 	};
 	
-	// Add new item to create array
-	newStagedChanges.create.push({
+	const newItem = {
 		[junctionField]: {
 			...item,
 			html: item.html || '',
 			status: item.status || 'draft',
 			severity: item.severity || 'low'
 		}
-	});
+	};
 	
-	console.log('New staged changes:', JSON.stringify(newStagedChanges, null, 2));
+	newStagedChanges.create.push(newItem);
+	
+	// Add item to displayItems immediately
+	displayItems.value = [...displayItems.value, newItem];
+	
 	emit('input', newStagedChanges);
 	localInput.value = '';
 }
@@ -788,57 +809,56 @@ async function loadItems(ids: (string | number)[]) {
 
 // Function to consolidate current items with staged changes
 async function consolidateDisplay() {
-	console.log('consolidateDisplay - Starting with displayItems:', JSON.stringify(displayItems.value));
-	
-	await loadItems(currentIds.value);
-	
 	if (!relationInfo.value) return;
 	
-	console.log('consolidateDisplay - After loadItems:', displayItems.value);
-	console.log('consolidateDisplay - Current staged changes:', stagedChanges.value);
-	
-	const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
+	console.log('consolidateDisplay - Starting with:', JSON.stringify({
+		displayItems: displayItems.value,
+		stagedChanges: stagedChanges.value
+	}, null, 2));
+
 	const junctionField = relationInfo.value.junctionField.field;
 	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
-	
-	// First remove deleted items
-	displayItems.value = displayItems.value.filter(
+
+	// Create a working copy of the current display items
+	let workingItems = [...displayItems.value];
+
+	// Remove deleted items
+	workingItems = workingItems.filter(
 		item => !stagedChanges.value.delete.includes(item[junctionPkField])
 	);
-	
+
 	// Apply updates
 	stagedChanges.value.update.forEach(update => {
-		const index = displayItems.value.findIndex(
+		const index = workingItems.findIndex(
 			item => item[junctionPkField] === update.id
 		);
 		if (index !== -1) {
-			displayItems.value[index] = {
-				...displayItems.value[index],
+			workingItems[index] = {
+				...workingItems[index],
 				[junctionField]: {
-					...displayItems.value[index][junctionField],
+					...workingItems[index][junctionField],
 					...update[junctionField]
 				}
 			};
 		}
 	});
-	
-	// Keep track of items we've already added to prevent duplicates
-	const addedItemIds = new Set(
-		displayItems.value.map(item => 
-			item[junctionField]?.[relatedPkField]
-		)
-	);
-	
-	// Add created items (only if not already in display items)
+
+	// Handle created items - keep only saved items and add new ones
+	workingItems = workingItems.filter(item => item[junctionPkField]);
 	stagedChanges.value.create.forEach(item => {
-		const itemId = item[junctionField]?.[relatedPkField];
-		if (!addedItemIds.has(itemId)) {
-			displayItems.value.push(item);
-			addedItemIds.add(itemId);
+		const existingIndex = workingItems.findIndex(
+			workingItem => workingItem[junctionField].id === item[junctionField].id
+		);
+
+		if (existingIndex !== -1) {
+			workingItems[existingIndex] = item;
+		} else {
+			workingItems.push(item);
 		}
 	});
-	
-	console.log('consolidateDisplay - Final displayItems:', displayItems.value);
+
+	console.log('consolidateDisplay - Final workingItems:', JSON.stringify(workingItems, null, 2));
+	displayItems.value = workingItems;
 }
 
 // Add a watch on the primaryKey to detect when the parent item is saved
@@ -865,10 +885,7 @@ watch(
 watch(
 	value,
 	async (newValue) => {
-		console.log('Value changed:', JSON.stringify(newValue));
-		
 		if (!newValue) {
-			// Reset everything when value is cleared
 			displayItems.value = [];
 			currentIds.value = [];
 			stagedChanges.value = {
@@ -880,14 +897,23 @@ watch(
 		}
 		
 		if (Array.isArray(newValue)) {
-			currentIds.value = newValue;
-			await loadItems(newValue);
+			// Only reload if the IDs have actually changed
+			const newIds = new Set(newValue);
+			const currentIdsSet = new Set(currentIds.value);
+			const hasChanges = newValue.length !== currentIds.value.length || 
+				newValue.some(id => !currentIdsSet.has(id));
+			
+			if (hasChanges) {
+				currentIds.value = newValue;
+				await loadItems(newValue);
+			}
 		} 
 		else if ('create' in newValue) {
 			stagedChanges.value = newValue;
 			await consolidateDisplay();
 		}
-	}
+	},
+	{ deep: true }
 );
 </script>
 
@@ -955,5 +981,24 @@ watch(
 	:deep(.v-menu__content) {
 		padding-top: 8px;
 	}
+}
+
+.list-enter-active,
+.list-leave-active {
+	transition: all 0.2s ease;
+}
+
+.list-enter-from {
+	opacity: 0;
+	transform: translateY(-20px);
+}
+
+.list-leave-to {
+	opacity: 0;
+	transform: translateY(20px);
+}
+
+.list-move {
+	transition: transform 0.2s ease;
 }
 </style>
