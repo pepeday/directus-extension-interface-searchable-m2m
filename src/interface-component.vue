@@ -89,7 +89,11 @@
 					:key="item[relationInfo.junctionField.field]?.[relationInfo.relatedPrimaryKeyField.field]"
 					v-tooltip="t('Click to edit')" 
 					:disabled="disabled || !selectAllowed" 
-					class="link block clickable"
+					class="link block clickable" 
+					:style="{ 
+						color: isItemDeleted(item) ? 'var(--danger)' : undefined,
+						backgroundColor: isItemDeleted(item) ? 'var(--danger-alt)' : undefined
+					}"
 					@click="openEditDrawer(item, relationInfo.junctionField.field, props)"
 				>
 					<v-list-item-content>
@@ -114,9 +118,10 @@
 					<v-list-item-action>
 						<v-icon 
 							class="deselect" 
-							name="close" 
+							:name="isItemDeleted(item) ? 'settings_backup_restore' : 'close'" 
+							:style="{ color: isItemDeleted(item) ? 'var(--danger)' : undefined }"
 							@click.stop="deleteItem(item)" 
-							v-tooltip="t('Remove Item')" 
+							v-tooltip="isItemDeleted(item) ? t('Undo Removed Item') : t('Remove Item')" 
 						/>
 					</v-list-item-action>
 				</v-list-item>
@@ -457,27 +462,34 @@ async function openEditDrawer(
 	}
 }
 
-function deleteItem(item: RelationItem) {
+function deleteItem(item: any) {
 	if (!relationInfo.value) return;
 	
 	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
-	
-	const newStagedChanges = {
-		create: [...stagedChanges.value.create],
-		update: [...stagedChanges.value.update],
-		delete: [...stagedChanges.value.delete]
-	};
-	
-	if (item[junctionPkField]) {
-		newStagedChanges.delete.push(item[junctionPkField]);
-		
-		// Remove item from displayItems immediately
-		displayItems.value = displayItems.value.filter(
-			displayItem => displayItem[junctionPkField] !== item[junctionPkField]
+	const itemId = item[junctionPkField];
+
+	if (!itemId) {
+		// For newly created items, remove from create array
+		const createIndex = stagedChanges.value.create.findIndex(
+			createItem => createItem[relationInfo.value.junctionField.field].name === item[relationInfo.value.junctionField.field].name
 		);
+		if (createIndex !== -1) {
+			stagedChanges.value.create.splice(createIndex, 1);
+			displayItems.value = displayItems.value.filter(
+				displayItem => displayItem[relationInfo.value.junctionField.field].name !== item[relationInfo.value.junctionField.field].name
+			);
+		}
+	} else {
+		// For existing items, toggle deletion
+		const deleteIndex = stagedChanges.value.delete.indexOf(itemId);
+		if (deleteIndex === -1) {
+			stagedChanges.value.delete.push(itemId);
+		} else {
+			stagedChanges.value.delete.splice(deleteIndex, 1);
+		}
 	}
-	
-	emit('input', newStagedChanges);
+
+	emit('input', stagedChanges.value);
 }
 
 function stageItemObject(item: Record<string, RelationItem>) {
@@ -822,11 +834,6 @@ async function consolidateDisplay() {
 	// Create a working copy of the current display items
 	let workingItems = [...displayItems.value];
 
-	// Remove deleted items
-	workingItems = workingItems.filter(
-		item => !stagedChanges.value.delete.includes(item[junctionPkField])
-	);
-
 	// Apply updates
 	stagedChanges.value.update.forEach(update => {
 		const index = workingItems.findIndex(
@@ -846,15 +853,7 @@ async function consolidateDisplay() {
 	// Handle created items - keep only saved items and add new ones
 	workingItems = workingItems.filter(item => item[junctionPkField]);
 	stagedChanges.value.create.forEach(item => {
-		const existingIndex = workingItems.findIndex(
-			workingItem => workingItem[junctionField].id === item[junctionField].id
-		);
-
-		if (existingIndex !== -1) {
-			workingItems[existingIndex] = item;
-		} else {
-			workingItems.push(item);
-		}
+		workingItems.push(item);
 	});
 
 	console.log('consolidateDisplay - Final workingItems:', JSON.stringify(workingItems, null, 2));
@@ -915,6 +914,12 @@ watch(
 	},
 	{ deep: true }
 );
+
+// First, add a computed property to check if an item is staged for deletion
+const isItemDeleted = (item: any) => {
+	if (!relationInfo.value) return false;
+	return stagedChanges.value.delete.includes(item[relationInfo.value.junctionPrimaryKeyField.field]);
+};
 </script>
 
 <style lang="scss" scoped>
@@ -944,61 +949,9 @@ watch(
 .field {
 	display: inline-flex;
 	max-width: 100%;
-
-	:deep(img) {
-		max-height: 40px;
-		width: auto;
-		vertical-align: middle;
-		border-radius: 4px;
-		margin: 4px;
-	}
-
-	:deep(p) {
-		margin: 0;
-		display: inline;
-	}
-}
-
-:deep(.render-template-wrapper) {
-	.field p img {
-		max-height: 40px !important;
-		border-radius: 4px;
-		vertical-align: middle;
-		width: auto !important;
-		object-fit: contain;
-		margin: 0px 4px;
-	}
 }
 
 .v-list-item {
-	:deep(.v-list-item-content) {
-		flex-direction: row;
-		gap: 12px;
-	}
-}
-
-.menu-list {
-	:deep(.v-menu__content) {
-		padding-top: 8px;
-	}
-}
-
-.list-enter-active,
-.list-leave-active {
-	transition: all 0.2s ease;
-}
-
-.list-enter-from {
-	opacity: 0;
-	transform: translateY(-20px);
-}
-
-.list-leave-to {
-	opacity: 0;
-	transform: translateY(20px);
-}
-
-.list-move {
-	transition: transform 0.2s ease;
+	transition: background-color 0.2s ease, color 0.2s ease;
 }
 </style>
