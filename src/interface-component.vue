@@ -6,75 +6,93 @@
 	</v-notice>
 
 	<template v-else>
-		<v-menu v-if="selectAllowed" v-model="menuActive" attached full-height>
-			<template #activator>
-				<v-input ref="inputRef" v-model="localInput" :placeholder="placeholder || t('search_items')"
-					:disabled="disabled" @keydown="onInputKeyDown" @focus="menuActive = true">
-					<template v-if="iconLeft" #prepend>
-						<v-icon v-if="iconLeft" :name="iconLeft" />
-					</template>
-
-					<template #append>
-						<v-icon v-if="iconRight" :name="iconRight" />
-					</template>
-				</v-input>
-			</template>
-
-			<div class="menu-list">
-				<v-list v-if="!disabled && (showAddCustom || suggestedItems.length)">
-					<v-list-item v-if="showAddCustom" clickable @click="stageLocalInput">
-						<v-list-item-content v-tooltip="t('interfaces.tags.add_tags')" class="add-custom">
-							{{
-								t('field_in_collection', {
-									field: localInput,
-									collection: isMulti ? t('select_all') : t('create_item'),
-								})
-							}}
-						</v-list-item-content>
-					</v-list-item>
-
-					<v-divider v-if="showAddCustom && suggestedItems.length" />
-					<template v-if="suggestedItems.length">
-
-						<v-list-item 
-							v-for="(item, index) in suggestedItems"
-							:key="item[relationInfo.relatedPrimaryKeyField.field]"
-							:active="index === suggestedItemsSelected" 
-							clickable 
-							@click="() => stageItemObject(item)"
+		<div class="search-wrapper" ref="wrapperRef">
+			<v-menu 
+				v-if="selectAllowed" 
+				v-model="menuActive" 
+				attached
+				full-height
+				placement="bottom-start"
+				ref="menuRef"
+			>
+				<template #activator="{ active }">
+					<div class="input-wrapper">
+						<v-input 
+							ref="inputRef" 
+							v-model="localInput" 
+							:placeholder="placeholder || t('search_items')"
+							:disabled="disabled" 
+							@keydown="onInputKeyDown" 
+							@focus="menuActive = true" 
+							style="width: 100%;"
 						>
-							<v-list-item-content>
-								<div class="render-template-wrapper">
-									<template v-for="field in getFieldsFromTemplate(props.template)" :key="field">
-										<div v-if="field.includes('html') && item[field.replace(relationInfo.junctionField.field + '.', '')]" 
-											class="field" 
-											v-html="item[field.replace(relationInfo.junctionField.field + '.', '')]"
-										/>
-										<template v-else>
-											<render-template
-												v-if="relationInfo && item"
-												:collection="relationInfo.relatedCollection.collection"
-												:item="item"
-												:template="`{{${field.replace(relationInfo.junctionField.field + '.', '')}}}`"
-											/>
-										</template>
-									</template>
-								</div>
+							<template v-if="iconLeft" #prepend>
+								<v-icon v-if="iconLeft" :name="iconLeft" />
+							</template>
+							
+							<template #append>
+								<v-icon v-if="iconRight" :name="iconRight" />
+							</template>
+						</v-input>
+					</div>
+				</template>
+
+				<div class="menu-list" :style="menuStyle">
+					<v-list v-if="!disabled && (showAddCustom || suggestedItems.length)">
+						<v-list-item v-if="showAddCustom" clickable @click="stageLocalInput">
+							<v-list-item-content v-tooltip="t('interfaces.tags.add_tags')" class="add-custom">
+								{{
+									t('field_in_collection', {
+										field: localInput,
+										collection: isMulti ? t('select_all') : t('create_item'),
+									})
+								}}
 							</v-list-item-content>
 						</v-list-item>
 
+						<v-divider v-if="showAddCustom && suggestedItems.length" />
+						<template v-if="suggestedItems.length">
+
+							<v-list-item 
+								v-for="(item, index) in suggestedItems"
+								:key="item[relationInfo.relatedPrimaryKeyField.field]"
+								:active="index === suggestedItemsSelected" 
+								clickable 
+								@click="() => stageItemObject(item)"
+							>
+								<v-list-item-content>
+									<div class="render-template-wrapper">
+										<template v-for="field in getFieldsFromTemplate(props.template)" :key="field">
+											<div v-if="field.includes('html') && item[field.replace(relationInfo.junctionField.field + '.', '')]" 
+												class="field" 
+												v-html="item[field.replace(relationInfo.junctionField.field + '.', '')]"
+											/>
+											<template v-else>
+												<render-template
+													v-if="relationInfo && item"
+													:collection="relationInfo.relatedCollection.collection"
+													:item="item"
+													:template="`{{${field.replace(relationInfo.junctionField.field + '.', '')}}}`"
+												/>
+											</template>
+										</template>
+									</div>
+								</v-list-item-content>
+							</v-list-item>
 
 
-					</template>
-				</v-list>
 
-				<v-list v-else-if="!disabled && localInput && !createAllowed">
-					<v-list-item class="no-items">
-						{{ t('no_items') }}
-					</v-list-item>
-				</v-list>
-			</div>
-		</v-menu>
+						</template>
+					</v-list>
+
+					<v-list v-else-if="!disabled && localInput && !createAllowed">
+						<v-list-item class="no-items">
+							{{ t('no_items') }}
+						</v-list-item>
+					</v-list>
+				</div>
+			</v-menu>
+		</div>
 
 		<v-skeleton-loader v-if="loading" type="block-list-item" />
 
@@ -118,7 +136,7 @@
 					<v-list-item-action>
 						<v-icon 
 							class="deselect" 
-							:name="isItemDeleted(item) ? 'settings_backup_restore' : 'close'" 
+							:name="getItemIcon(item)" 
 							:style="{ color: isItemDeleted(item) ? 'var(--danger)' : undefined }"
 							@click.stop="deleteItem(item)" 
 							v-tooltip="isItemDeleted(item) ? t('Undo Removed Item') : t('Remove Item')" 
@@ -145,7 +163,7 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, ref, toRefs, Ref, watch } from 'vue';
+import { computed, ref, toRefs, Ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { debounce, partition } from 'lodash';
 import { Filter, LogicalFilterAND, LogicalFilterOR, FieldFilter } from '@directus/types';
@@ -162,7 +180,9 @@ interface StagedChanges {
 	delete: string[];
 }
 
-const inputRef = ref<HTMLElement | null>(null);
+const menuRef = ref(null);
+const inputRef = ref<HTMLInputElement | null>(null);
+const inputWidth = ref(0);
 const localInput = ref<string>('');
 const menuActive = ref<boolean>(false);
 const suggestedItems = ref<Record<string, any>[]>([]);
@@ -920,9 +940,168 @@ const isItemDeleted = (item: any) => {
 	if (!relationInfo.value) return false;
 	return stagedChanges.value.delete.includes(item[relationInfo.value.junctionPrimaryKeyField.field]);
 };
+
+function getItemIcon(item: any): string {
+	if (!relationInfo.value) return 'close';
+	
+	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
+	
+	// For newly created items (no junction ID), show delete icon
+	if (!item[junctionPkField]) {
+		return 'delete';
+	}
+	
+	// For existing items, show restore if marked for deletion, otherwise close
+	return isItemDeleted(item) ? 'settings_backup_restore' : 'close';
+}
+
+const updateWidth = () => {
+	if (inputRef.value) {
+		inputWidth.value = inputRef.value.offsetWidth;
+	}
+};
+
+// Single onMounted handler
+onMounted(() => {
+	// Create resize observer
+	resizeObserver.value = new ResizeObserver((entries) => {
+		for (const entry of entries) {
+			if (entry.target === wrapperRef.value) {
+				const width = entry.contentRect.width;
+				// Subtract scrollbar width if needed
+				const scrollbarWidth = entry.target.offsetWidth - width;
+				menuStyle.value = {
+					width: `${width - scrollbarWidth}px`
+				};
+			}
+		}
+	});
+
+	// Start observing
+	if (wrapperRef.value) {
+		resizeObserver.value.observe(wrapperRef.value);
+	}
+
+	updateWidth();
+	window.addEventListener('resize', updateWidth);
+});
+
+// Single onUnmounted handler
+onUnmounted(() => {
+	if (resizeObserver.value) {
+		resizeObserver.value.disconnect();
+	}
+	window.removeEventListener('resize', updateWidth);
+});
+
+// Watch for menu activation to ensure width is correct when menu opens
+watch(menuActive, async (newValue) => {
+	if (newValue) {
+		console.log('Menu opening...');
+		await nextTick();
+		
+		// Get input width from wrapper
+		const wrapperWidth = wrapperRef.value?.offsetWidth;
+		console.log('Wrapper width:', wrapperWidth);
+		
+		if (wrapperWidth) {
+			menuStyle.value = {
+				width: `${wrapperWidth}px`
+			};
+		}
+	}
+});
+
+const wrapperRef = ref<HTMLElement | null>(null);
+const menuStyle = ref({
+	width: '0px'
+});
+
+// Add ResizeObserver setup
+const resizeObserver = ref<ResizeObserver | null>(null);
 </script>
 
 <style lang="scss" scoped>
+.search-wrapper {
+	position: relative;
+	width: 100%;
+}
+
+.input-wrapper {
+	width: 100%;
+}
+
+:deep(.v-menu-popper.attached) {
+	position: fixed !important;
+	left: 0;
+	margin-top: 4px;
+	z-index: 500;
+
+	.v-menu-content {
+		width: 100% !important;
+		background-color: var(--theme--background);
+		border-radius: var(--theme--border-radius);
+		box-shadow: var(--theme--card--shadow);
+		padding: 0;
+		box-sizing: border-box;
+		overflow: hidden;
+	}
+}
+
+.menu-list {
+	background-color: var(--theme--background);
+	border-radius: var(--theme--border-radius);
+	box-sizing: border-box;
+	width: 100%;
+	overflow: visible;
+
+	.v-list {
+		width: 100%;
+		padding: var(--v-list-padding);
+		box-sizing: border-box;
+		max-height: 300px;
+		overflow-y: auto;
+	}
+}
+
+/* Scrollbar styles */
+.v-list {
+	&::-webkit-scrollbar {
+		width: 8px;
+		height: 8px;
+	}
+
+	&::-webkit-scrollbar-track {
+		background-color: var(--theme--background);
+	}
+
+	&::-webkit-scrollbar-thumb {
+		background-color: var(--theme--primary);
+		border-radius: 4px;
+	}
+
+	.v-list-item {
+		margin-bottom: var(--v-list-item-padding);
+		
+		&:last-child {
+			margin-bottom: 0;
+		}
+	}
+}
+
+/* Transitions */
+:deep(.v-menu-enter-active),
+:deep(.v-menu-leave-active) {
+	transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+:deep(.v-menu-enter-from),
+:deep(.v-menu-leave-to) {
+	opacity: 0;
+	transform: translateY(-4px);
+}
+
+/* Other existing styles */
 .content {
 	padding: var(--content-padding);
 	padding-top: 0;
@@ -946,9 +1125,33 @@ const isItemDeleted = (item: any) => {
 	width: 100%;
 }
 
+:deep(.render-template-wrapper) {
+	.field p img {
+		max-height: 40px !important;
+		border-radius: 4px;
+		vertical-align: middle;
+		width: auto !important;
+		object-fit: contain;
+		margin: 0px 4px;
+	}
+}
+
 .field {
 	display: inline-flex;
 	max-width: 100%;
+
+	:deep(img) {
+		max-height: 40px;
+		width: auto;
+		vertical-align: middle;
+		border-radius: 4px;
+		margin: 4px;
+	}
+
+	:deep(p) {
+		margin: 0;
+		display: inline;
+	}
 }
 
 .v-list-item {
