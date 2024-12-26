@@ -486,30 +486,40 @@ function deleteItem(item: any) {
 	if (!relationInfo.value) return;
 	
 	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
+	const junctionField = relationInfo.value.junctionField.field;
 	const itemId = item[junctionPkField];
+
+	// Create new copies of arrays to maintain reactivity
+	const newStagedChanges = {
+		create: [...stagedChanges.value.create],
+		update: [...stagedChanges.value.update],
+		delete: [...stagedChanges.value.delete]
+	};
 
 	if (!itemId) {
 		// For newly created items, remove from create array
-		const createIndex = stagedChanges.value.create.findIndex(
-			createItem => createItem[relationInfo.value.junctionField.field].name === item[relationInfo.value.junctionField.field].name
+		const createIndex = newStagedChanges.create.findIndex(
+			createItem => createItem[junctionField].id === item[junctionField].id
 		);
+		
 		if (createIndex !== -1) {
-			stagedChanges.value.create.splice(createIndex, 1);
-			displayItems.value = displayItems.value.filter(
-				displayItem => displayItem[relationInfo.value.junctionField.field].name !== item[relationInfo.value.junctionField.field].name
-			);
+			newStagedChanges.create.splice(createIndex, 1);
+			stagedChanges.value = newStagedChanges;
+			emit('input', newStagedChanges);
 		}
 	} else {
 		// For existing items, toggle deletion
-		const deleteIndex = stagedChanges.value.delete.indexOf(itemId);
+		const deleteIndex = newStagedChanges.delete.indexOf(itemId);
+		
 		if (deleteIndex === -1) {
-			stagedChanges.value.delete.push(itemId);
+			newStagedChanges.delete.push(itemId);
 		} else {
-			stagedChanges.value.delete.splice(deleteIndex, 1);
+			newStagedChanges.delete.splice(deleteIndex, 1);
 		}
-	}
 
-	emit('input', stagedChanges.value);
+		stagedChanges.value = newStagedChanges;
+		emit('input', newStagedChanges);
+	}
 }
 
 function stageItemObject(item: Record<string, RelationItem>) {
@@ -843,41 +853,41 @@ async function loadItems(ids: (string | number)[]) {
 async function consolidateDisplay() {
 	if (!relationInfo.value) return;
 	
-	console.log('consolidateDisplay - Starting with:', JSON.stringify({
-		displayItems: displayItems.value,
-		stagedChanges: stagedChanges.value
-	}, null, 2));
-
 	const junctionField = relationInfo.value.junctionField.field;
 	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
 
-	// Create a working copy of the current display items
-	let workingItems = [...displayItems.value];
+	try {
+		// Start with existing items from the database
+		let workingItems = displayItems.value.filter(item => item[junctionPkField]);
 
-	// Apply updates
-	stagedChanges.value.update.forEach(update => {
-		const index = workingItems.findIndex(
-			item => item[junctionPkField] === update.id
-		);
-		if (index !== -1) {
-			workingItems[index] = {
-				...workingItems[index],
-				[junctionField]: {
-					...workingItems[index][junctionField],
-					...update[junctionField]
-				}
-			};
-		}
-	});
+		// Apply updates to existing items
+		stagedChanges.value.update.forEach(update => {
+			const index = workingItems.findIndex(
+				item => item[junctionPkField] === update.id
+			);
+			if (index !== -1) {
+				workingItems[index] = {
+					...workingItems[index],
+					[junctionField]: {
+						...workingItems[index][junctionField],
+						...update[junctionField]
+					}
+				};
+			}
+		});
 
-	// Handle created items - keep only saved items and add new ones
-	workingItems = workingItems.filter(item => item[junctionPkField]);
-	stagedChanges.value.create.forEach(item => {
-		workingItems.push(item);
-	});
+		// Add staged created items
+		workingItems = [
+			...workingItems,
+			...stagedChanges.value.create
+		];
 
-	console.log('consolidateDisplay - Final workingItems:', JSON.stringify(workingItems, null, 2));
-	displayItems.value = workingItems;
+		// Update displayItems with the consolidated list
+		displayItems.value = workingItems;
+		
+	} catch (error) {
+		console.error('Error in consolidateDisplay:', error);
+	}
 }
 
 // Add a watch on the primaryKey to detect when the parent item is saved
@@ -916,18 +926,9 @@ watch(
 		}
 		
 		if (Array.isArray(newValue)) {
-			// Only reload if the IDs have actually changed
-			const newIds = new Set(newValue);
-			const currentIdsSet = new Set(currentIds.value);
-			const hasChanges = newValue.length !== currentIds.value.length || 
-				newValue.some(id => !currentIdsSet.has(id));
-			
-			if (hasChanges) {
-				currentIds.value = newValue;
-				await loadItems(newValue);
-			}
-		} 
-		else if ('create' in newValue) {
+			currentIds.value = newValue;
+			await loadItems(newValue);
+		} else if ('create' in newValue) {
 			stagedChanges.value = newValue;
 			await consolidateDisplay();
 		}
