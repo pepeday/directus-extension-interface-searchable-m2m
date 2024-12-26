@@ -6,104 +6,145 @@
 	</v-notice>
 
 	<template v-else>
-		<v-menu v-if="selectAllowed" v-model="menuActive" attached full-height>
-			<template #activator>
-				<v-input ref="inputRef" v-model="localInput" :placeholder="placeholder || t('search_items')"
-					:disabled="disabled" @keydown="onInputKeyDown" @focus="menuActive = true">
-					<template v-if="iconLeft" #prepend>
-						<v-icon v-if="iconLeft" :name="iconLeft" />
-					</template>
-
-					<template #append>
-						<v-icon v-if="iconRight" :name="iconRight" />
-					</template>
-				</v-input>
-			</template>
-
-			<v-list v-if="!disabled && (showAddCustom || suggestedItems.length)">
-				<v-list-item v-if="showAddCustom" clickable @click="stageLocalInput">
-					<v-list-item-content v-tooltip="t('interfaces.tags.add_tags')" class="add-custom">
-						{{
-							t('field_in_collection', {
-								field: localInput,
-								collection: isMulti ? t('select_all') : t('create_item'),
-							})
-						}}
-					</v-list-item-content>
-				</v-list-item>
-
-				<v-divider v-if="showAddCustom && suggestedItems.length" />
-				<template v-if="suggestedItems.length">
-
-					<v-list-item 
-						v-for="(item, index) in suggestedItems"
-						:key="item[relationInfo.relatedPrimaryKeyField.field]"
-						:active="index === suggestedItemsSelected" 
-						clickable 
-						@click="() => stageItemObject(item)"
-					>
-						<v-list-item-content>
-							<render-template
-								:collection="relationInfo.value?.relatedCollection?.collection"
-								:item="item"
-								:template="`{{${props.referencingField}}}`"
-							/>
-						</v-list-item-content>
-					</v-list-item>
-
-
-
+		<div class="search-wrapper" ref="wrapperRef">
+			<v-menu 
+				v-if="selectAllowed" 
+				v-model="menuActive" 
+				attached
+				full-height
+				placement="bottom-start"
+				ref="menuRef"
+			>
+				<template #activator="{ active }">
+					<div class="input-wrapper">
+						<v-input 
+							ref="inputRef" 
+							v-model="localInput" 
+							:placeholder="placeholder || t('search_items')"
+							:disabled="disabled" 
+							@keydown="onInputKeyDown" 
+							@focus="menuActive = true" 
+							style="width: 100%;"
+						>
+							<template v-if="iconLeft" #prepend>
+								<v-icon v-if="iconLeft" :name="iconLeft" />
+							</template>
+							
+							<template #append>
+								<v-icon v-if="iconRight" :name="iconRight" />
+							</template>
+						</v-input>
+					</div>
 				</template>
-			</v-list>
 
-			<v-list v-else-if="!disabled && localInput && !createAllowed">
-				<v-list-item class="no-items">
-					{{ t('no_items') }}
-				</v-list-item>
-			</v-list>
-		</v-menu>
+				<div class="menu-list" :style="menuStyle">
+					<v-list v-if="!disabled && (showAddCustom || suggestedItems.length)">
+						<v-list-item v-if="showAddCustom" clickable @click="stageLocalInput">
+							<v-list-item-content v-tooltip="t('interfaces.tags.add_tags')" class="add-custom">
+								{{
+									t('field_in_collection', {
+										field: localInput,
+										collection: isMulti ? t('select_all') : t('create_item'),
+									})
+								}}
+							</v-list-item-content>
+						</v-list-item>
+
+						<v-divider v-if="showAddCustom && suggestedItems.length" />
+						<template v-if="suggestedItems.length">
+
+							<v-list-item 
+								v-for="(item, index) in suggestedItems"
+								:key="item[relationInfo.relatedPrimaryKeyField.field]"
+								:active="index === suggestedItemsSelected" 
+								clickable 
+								@click="() => stageItemObject(item)"
+							>
+								<v-list-item-content>
+									<div class="render-template-wrapper">
+										<template v-for="field in getFieldsFromTemplate(props.template)" :key="field">
+											<div v-if="field.includes('html') && item[field.replace(relationInfo.junctionField.field + '.', '')]" 
+												class="field" 
+												v-html="item[field.replace(relationInfo.junctionField.field + '.', '')]"
+											/>
+											<template v-else>
+												<render-template
+													v-if="relationInfo && item"
+													:collection="relationInfo.relatedCollection.collection"
+													:item="item"
+													:template="`{{${field.replace(relationInfo.junctionField.field + '.', '')}}}`"
+												/>
+											</template>
+										</template>
+									</div>
+								</v-list-item-content>
+							</v-list-item>
+
+
+
+						</template>
+					</v-list>
+
+					<v-list v-else-if="!disabled && localInput && !createAllowed">
+						<v-list-item class="no-items">
+							{{ t('no_items') }}
+						</v-list-item>
+					</v-list>
+				</div>
+			</v-menu>
+		</div>
 
 		<v-skeleton-loader v-if="loading" type="block-list-item" />
 
-		<div v-else-if="items.length" class="tags">
-			<div style="background: #eee; padding: 10px; margin: 10px 0;">
-				<pre>Items: {{ JSON.stringify(items, null, 2) }}</pre>
-				<pre>Template: {{ templateWithDefaults }}</pre>
-				<pre>RelatedCollection: {{ relationInfo?.value?.relatedCollection?.collection }}</pre>
-				<pre>JunctionField: {{ relationInfo?.value?.junctionField?.field }}</pre>
-				<pre>Props Template: {{ props.template }}</pre>
-			</div>
-			
+		<transition-group v-else-if="displayItems.length" 
+			name="list" 
+			tag="div" 
+			class="tags"
+		>
 			<template v-if="relationInfo">
 				<v-list-item 
-					v-for="item in items" 
+					v-for="item in displayItems" 
 					:key="item[relationInfo.junctionField.field]?.[relationInfo.relatedPrimaryKeyField.field]"
 					v-tooltip="t('Click to edit')" 
 					:disabled="disabled || !selectAllowed" 
-					class="link block clickable"
+					class="link block clickable" 
+					:style="{ 
+						color: isItemDeleted(item) ? 'var(--danger)' : undefined,
+						backgroundColor: isItemDeleted(item) ? 'var(--danger-alt)' : undefined
+					}"
 					@click="openEditDrawer(item, relationInfo.junctionField.field, props)"
 				>
 					<v-list-item-content>
 						<div class="render-template-wrapper">
-							<render-template
-								:collection="relationInfo.junctionCollection.collection"
-								:item="item"
-								:template="props.template"
-							/>
+							<template v-for="field in getFieldsFromTemplate(templateWithDefaults)" :key="field">
+								<div v-if="field.includes('html') && item[relationInfo.junctionField.field]?.[field.replace(relationInfo.junctionField.field + '.', '')]" 
+									class="field" 
+									v-html="item[relationInfo.junctionField.field][field.replace(relationInfo.junctionField.field + '.', '')]"
+								/>
+								<template v-else>
+									<render-template
+										v-if="relationInfo && item[relationInfo.junctionField.field]"
+										:collection="relationInfo.junctionCollection.collection"
+										:item="item"
+										:template="`{{${field}}}`"
+										/>
+								</template>
+							</template>
 						</div>
 					</v-list-item-content>
 
 					<v-list-item-action>
 						<v-icon 
 							class="deselect" 
-							name="close" 
+							:name="getItemIcon(item)" 
+							:style="{ color: isItemDeleted(item) ? 'var(--danger)' : undefined }"
 							@click.stop="deleteItem(item)" 
-							v-tooltip="t('Remove Item')" 
+							v-tooltip="isItemDeleted(item) ? t('Undo Removed Item') : t('Remove Item')" 
 						/>
 					</v-list-item-action>
 				</v-list-item>
 			</template>
-		</div>
+		</transition-group>
 
 
 
@@ -113,7 +154,7 @@
 					<v-icon name="check" :large="true" />
 				</v-button>
 			</template>
-			<div class="layout">
+			<div class="content">
 				<v-form v-model="editItem" :collection="relationInfo.relatedCollection.collection" :fields="editFields"
 					:initial-values="editItem" />
 			</div>
@@ -122,10 +163,10 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, ref, toRefs, Ref, watch } from 'vue';
+import { computed, ref, toRefs, Ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { debounce, partition } from 'lodash';
-import { Filter } from '@directus/types';
+import { Filter, LogicalFilterAND, LogicalFilterOR, FieldFilter } from '@directus/types';
 import { useApi, useStores } from '@directus/composables';
 import { parseFilter, getEndpoint, getFieldsFromTemplate } from '@directus/utils';
 import { useRelationM2M } from './use-relations';
@@ -133,7 +174,29 @@ import { useRelationM2M } from './use-relations';
 type RelationFK = string | number | BigInt;
 type RelationItem = RelationFK | Record<string, any>;
 
-const inputRef = ref<HTMLElement | null>(null);
+interface StagedChanges {
+	create: Record<string, any>[];
+	update: Record<string, any>[];
+	delete: string[];
+}
+
+const menuRef = ref(null);
+const inputRef = ref<HTMLInputElement | null>(null);
+const inputWidth = ref(0);
+const localInput = ref<string>('');
+const menuActive = ref<boolean>(false);
+const suggestedItems = ref<Record<string, any>[]>([]);
+const suggestedItemsSelected = ref<number | null>(null);
+const displayItems = ref<any[]>([]);
+const editDrawer = ref(false);
+const editItem = ref(null);
+const editFields = ref({});
+const currentIds = ref<(string | number)[]>([]);
+const stagedChanges = ref<StagedChanges>({
+	create: [],
+	update: [],
+	delete: []
+});
 const props = withDefaults(
 	defineProps<{
 		value?: RelationItem[];
@@ -155,7 +218,7 @@ const props = withDefaults(
 	{
 		value: () => [],
 		disabled: false,
-		filter: () => null,
+		filter: null,
 		allowCustom: true,
 		sortDirection: 'desc',
 		iconRight: 'local_offer',
@@ -187,24 +250,34 @@ const selectAllowed = computed(() => {
 	return hasPermission(relationInfo.value.junctionCollection.collection, 'create');
 });
 
-const localInput = ref<string>('');
-const menuActive = ref<boolean>(false);
-const suggestedItems = ref<Record<string, any>[]>([]);
-const suggestedItemsSelected = ref<number | null>(null);
 const api = useApi();
 const templateWithDefaults = computed(() => {
-	console.log('Computing templateWithDefaults');
-	console.log('RelationInfo:', relationInfo.value);
-	console.log('Props template:', props.template);
-	console.log('Junction field:', relationInfo.value?.junctionField?.field);
+	if (!relationInfo?.value?.junctionField?.field) return null;
+
+	// If no template is provided, use the referencing field
+	if (!props.template) {
+		return `{{${relationInfo.value.junctionField.field}.${props.referencingField}}}`;
+	}
+
+	// If the template doesn't include the junction field prefix, add it
+	if (!props.template.includes(relationInfo.value.junctionField.field + '.')) {
+		return props.template
+			.replace(/\{\{/g, '{{' + relationInfo.value.junctionField.field + '.')
+			.replace(new RegExp(`${relationInfo.value.junctionField.field}\\.${relationInfo.value.junctionField.field}\\.`, 'g'), 
+				`${relationInfo.value.junctionField.field}.`);
+	}
 
 	return props.template;
 });
 
 const displayFields = computed(() => {
-	if (!relationInfo?.value) return [];
+	if (!relationInfo?.value?.junctionField?.field) return [];
 
-	return getFieldsFromTemplate(props.template || '').map(field => {
+	const fields = getFieldsFromTemplate(props.template || '');
+	
+	return fields.map(field => {
+		if (!relationInfo.value?.junctionField?.field) return field;
+		
 		if (field.startsWith(relationInfo.value.junctionField.field)) {
 			return field;
 		}
@@ -238,8 +311,6 @@ const fetchFields = computed(() => {
 	return Array.from(fields);
 });
 
-const { items, loading } = usePreviews(value);
-
 const showAddCustom = computed(
 	() =>
 		createAllowed.value &&
@@ -262,115 +333,207 @@ function emitter(newValue: RelationItem[] | null) {
 	emit('input', newValue);
 }
 
-const editDrawer = ref(false); // Drawer state
-const editItem = ref(null); // Item to be edited
-const editFields = ref({});
 // Save the edited item
 async function saveEdit() {
 	try {
 		if (!relationInfo.value) return;
 		
-		const id = editItem.value?.id;
-		let savedItem;
+		const junctionId = editItem.value?.junction_id;
+		const junctionField = relationInfo.value.junctionField.field;
+		
 
-		if (id) {
-			// Update existing item
-			const response = await api.patch(
-				`/items/${relationInfo.value.relatedCollection.collection}/${id}`, 
-				editItem.value
-			);
-			savedItem = response.data.data;
-		} else {
-			// Create new item
-			const response = await api.post(
-				`/items/${relationInfo.value.relatedCollection.collection}`, 
-				editItem.value
-			);
-			savedItem = response.data.data;
-		}
+		const newStagedChanges = {
+			create: [...stagedChanges.value.create],
+			update: [...stagedChanges.value.update],
+			delete: [...stagedChanges.value.delete]
+		};
 
-		// Update the item in the list
-		items.value = items.value.map(item => {
-			if (item[relationInfo.value.junctionField.field].id === id) {
-				return {
-					...item,
-					[relationInfo.value.junctionField.field]: savedItem,
+		if (!junctionId) {
+			// For newly created items, find the matching item in displayItems
+			const displayItemIndex = displayItems.value.findIndex(
+				item => !item[relationInfo.value.junctionPrimaryKeyField.field] && 
+					   item[junctionField].name === stagedChanges.value.create[stagedChanges.value.create.length - 1][junctionField].name
+			);
+
+
+			if (displayItemIndex !== -1) {
+				// Update both the staged changes and display items
+				newStagedChanges.create[newStagedChanges.create.length - 1] = {
+					[junctionField]: {
+						...editItem.value
+					}
+				};
+
+				// Update display items immediately
+				displayItems.value[displayItemIndex] = {
+					[junctionField]: {
+						...editItem.value
+					}
 				};
 			}
-			return item;
-		});
-
+		} else {
+			// Handle existing items
+			const updateIndex = newStagedChanges.update.findIndex(update => update.id === junctionId);
+			if (updateIndex !== -1) {
+				newStagedChanges.update.splice(updateIndex, 1);
+			}
+			
+			const { junction_id, ...editData } = editItem.value;
+			
+			newStagedChanges.update.push({
+				id: junctionId,
+				[junctionField]: editData
+			});
+		}
+		
+		emit('input', newStagedChanges);
 		editDrawer.value = false;
 	} catch (error) {
-		console.error('Error saving item:', error);
+		console.error('Error saving item:', JSON.stringify(error));
 	}
 }
 
-
-async function openEditDrawer(item, field, props) {
+async function openEditDrawer(
+	item: RelationItem,
+	field: string,
+	props: {
+		referencingField: string;
+		[key: string]: any;
+	}
+) {
 	try {
-		// Check if this is a newly created item (no ID yet)
-		const itemId = item[field]?.id;
+		if (!relationInfo.value?.relatedCollection?.collection) return;
+
+		const junctionId = item[relationInfo.value.junctionPrimaryKeyField.field];
+		const junctionField = relationInfo.value.junctionField.field;
 		
-		if (!itemId) {
-			// For new items, just use the existing data
-			editItem.value = { ...item[field] };
+		// First check staged updates
+		const stagedUpdate = stagedChanges.value.update.find(update => update.id === junctionId);
+		if (stagedUpdate) {
+			editItem.value = {
+				...item[junctionField],
+				...stagedUpdate[junctionField],
+				junction_id: junctionId
+			};
 			editDrawer.value = true;
 			
-			// Still fetch fields schema
+			const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
+			editFields.value = schemaResponse.data.data;
+			return;
+		}
+		
+		// Check if this is a staged created item
+		const isCreatedItem = !junctionId && item[junctionField];
+		if (isCreatedItem) {
+			editItem.value = {
+				...item[junctionField],
+				junction_id: null
+			};
+			editDrawer.value = true;
+			
 			const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
 			editFields.value = schemaResponse.data.data;
 			return;
 		}
 
-		// For existing items, fetch the full data
-		const response = await api.get(`/items/${relationInfo.value.relatedCollection.collection}/${itemId}`, {
-			params: {
-				fields: '*'
-			}
-		});
+		// If no staged changes, fetch from API
+		const relatedItemId = item[field]?.id;
+		if (relatedItemId) {
+			const response = await api.get(
+				`/items/${relationInfo.value.relatedCollection.collection}/${relatedItemId}`,
+				{
+					params: {
+						fields: '*'
+					}
+				}
+			);
 
-		editItem.value = response.data.data || { ...item[field] };
+			editItem.value = {
+				...response.data.data,
+				junction_id: junctionId
+			};
+		} else {
+			editItem.value = {
+				...item[field],
+				junction_id: junctionId
+			};
+		}
+		
 		editDrawer.value = true;
 
 		const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
 		editFields.value = schemaResponse.data.data;
 	} catch (error) {
-		console.error('Error fetching item data:', error);
+		console.error('Error fetching item data:', JSON.stringify(error));
 	}
 }
 
-
 function deleteItem(item: any) {
-	if (value.value && !Array.isArray(value.value)) return;
+	if (!relationInfo.value) return;
+	
+	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
+	const junctionField = relationInfo.value.junctionField.field;
+	const itemId = item[junctionPkField];
 
-	if (relationInfo.value.junctionPrimaryKeyField.field in item) {
-		emitter(value.value.filter((x: any) => x !== item[relationInfo.value.junctionPrimaryKeyField.field]));
+	// Create new copies of arrays to maintain reactivity
+	const newStagedChanges = {
+		create: [...stagedChanges.value.create],
+		update: [...stagedChanges.value.update],
+		delete: [...stagedChanges.value.delete]
+	};
+
+	if (!itemId) {
+		// For newly created items, remove from create array
+		const createIndex = newStagedChanges.create.findIndex(
+			createItem => createItem[junctionField].id === item[junctionField].id
+		);
+		
+		if (createIndex !== -1) {
+			newStagedChanges.create.splice(createIndex, 1);
+			stagedChanges.value = newStagedChanges;
+			emit('input', newStagedChanges);
+		}
 	} else {
-		emitter(value.value.filter((x: any) => x !== item));
+		// For existing items, toggle deletion
+		const deleteIndex = newStagedChanges.delete.indexOf(itemId);
+		
+		if (deleteIndex === -1) {
+			newStagedChanges.delete.push(itemId);
+		} else {
+			newStagedChanges.delete.splice(deleteIndex, 1);
+		}
+
+		stagedChanges.value = newStagedChanges;
+		emit('input', newStagedChanges);
 	}
 }
 
 function stageItemObject(item: Record<string, RelationItem>) {
-	console.log('Staging item:', item);
-	console.log('Current value:', props.value);
-	
 	if (!relationInfo.value) return;
 	
-	// Create the junction structure
-	const junctionItem = {
-		[relationInfo.value.junctionField.field]: {
+	const junctionField = relationInfo.value.junctionField.field;
+	
+	const newStagedChanges = {
+		create: [...stagedChanges.value.create],
+		update: [...stagedChanges.value.update],
+		delete: [...stagedChanges.value.delete]
+	};
+	
+	const newItem = {
+		[junctionField]: {
 			...item,
-			[relationInfo.value.relatedPrimaryKeyField.field]: item[relationInfo.value.relatedPrimaryKeyField.field],
+			html: item.html || '',
+			status: item.status || 'draft',
+			severity: item.severity || 'low'
 		}
 	};
 	
-	console.log('Junction item:', junctionItem);
+	newStagedChanges.create.push(newItem);
 	
-	const newValue = [...(props.value || []), junctionItem];
-	console.log('New value:', newValue);
+	// Add item to displayItems immediately
+	displayItems.value = [...displayItems.value, newItem];
 	
-	emitter(newValue);
+	emit('input', newStagedChanges);
 	localInput.value = '';
 }
 
@@ -402,16 +565,23 @@ async function stageValue(value: string) {
 		if (item) {
 			stageItemObject(item);
 		} else if (createAllowed.value && props.referencingField) {
+			// Create new item
 			stageItemObject({ [props.referencingField]: value });
 		}
 	} catch (err: any) {
-		console.error('Error staging value:', err);
+		console.error('Error staging value:', JSON.stringify(err));
 	}
 }
 
 function itemValueStaged(value: string): boolean {
-	if (!value || !props.referencingField) return false;
-	return !!items.value.find((item) => item[relationInfo.value.junctionField.field][props.referencingField] === value);
+	if (!value || !props.referencingField || !relationInfo.value) return false;
+	
+	const junctionField = relationInfo.value.junctionField.field;
+	
+	return stagedChanges.value.create.some(item => {
+		const junctionItem = item[junctionField];
+		return junctionItem && junctionItem[props.referencingField] === value;
+	});
 }
 
 function itemValueAvailable(value: string): boolean {
@@ -431,46 +601,53 @@ async function refreshSuggestions(keyword: string) {
 		return;
 	}
 
-	// Get currently selected IDs
-	const currentIds = items.value
+	const currentIds = displayItems.value
 		.map((item: RelationItem): RelationFK =>
 			item[relationInfo.value.junctionField.field]?.[relationInfo.value.relatedPrimaryKeyField.field]
 		)
 		.filter((id: RelationFK) => id === 0 || !!id);
 
-	// Build filters
-	const filters = [
-		props.filter && parseFilter(props.filter, null),
-		currentIds.length > 0 && {
+	const filters: Filter[] = [];
+
+	// Add the custom filter if it exists
+	if (props.filter) {
+		filters.push(props.filter);
+	}
+
+	// Add the current IDs filter
+	if (currentIds.length > 0) {
+		filters.push({
 			[relationInfo.value.relatedPrimaryKeyField.field]: {
 				_nin: currentIds,
 			},
+		});
+	}
+
+	// Add the keyword search filter
+	filters.push({
+		[props.referencingField]: {
+			_contains: keyword,
 		},
-		{
-			[props.referencingField]: {
-				_contains: keyword,
-			},
-		},
-	].filter(Boolean);
+	});
 
 	try {
 		const response = await api.get(getEndpoint(relationInfo.value.relatedCollection.collection), {
 			params: {
-				limit: 10,
-				fields: [
-					relationInfo.value.relatedPrimaryKeyField.field,
-					props.referencingField,
-				],
-				filter: {
-					_and: filters,
+					limit: 10,
+					fields: [
+						relationInfo.value.relatedPrimaryKeyField.field,
+						props.referencingField,
+						...getFieldsFromTemplate(props.template || '')
+							.map(field => field.replace(relationInfo.value.junctionField.field + '.', '')),
+					],
+					filter: filters.length > 1 ? { _and: filters } : filters[0],
+					...getSortingQuery(),
 				},
-				...getSortingQuery(),
-			},
 		});
 
 		suggestedItems.value = response?.data?.data || [];
 	} catch (error) {
-		console.error('Error fetching suggestions:', error);
+		console.error('Error fetching suggestions:', JSON.stringify(error));
 		suggestedItems.value = [];
 	}
 }
@@ -497,116 +674,10 @@ async function findByKeyword(keyword: string): Promise<Record<string, any> | nul
 	return response?.data?.data?.[0] || null;
 }
 
-function usePreviews(value: Ref<RelationItem[]>) {
-	const items = ref<any[]>([]);
-	const loading = ref<boolean>(value.value && value.value.length > 0);
+const { loading } = usePreviews(value);
 
-	if (!relationInfo.value) return { items, loading };
-
-	// Get the fields we need to fetch
-	const relationalFetchFields = computed(() => {
-		if (!relationInfo.value) return [];
-		
-		const fields = new Set<string>();
-		
-		// Add junction primary key
-		fields.add(relationInfo.value.junctionPrimaryKeyField.field);
-		
-		// Add all fetch fields
-		fetchFields.value.forEach(field => {
-			// Check if the field contains a function (starts with $)
-			if (field.includes('.$')) {
-				// For thumbnail fields, we need to keep the full path
-				fields.add(field);
-			} else if (field.includes('.')) {
-				// For regular nested fields
-				fields.add(field);
-			} else {
-				// For top-level fields
-				fields.add(field);
-			}
-		});
-		
-		// Convert to array and format for API request
-		const formattedFields = Array.from(fields).map(field => {
-			// If it's a nested field with a function (like $thumbnail)
-			if (field.includes('.$')) {
-				const [path, func] = field.split('.$');
-				return `${path}.$${func}`;
-			}
-			return field;
-		});
-		
-		return formattedFields;
-	});
-
-	watch(
-		value,
-		debounce((newValue: RelationItem[]) => update(newValue), 300)
-	);
-
-	if (value.value && Array.isArray(value.value)) {
-		update(value.value);
-	}
-
-	return { items, loading };
-
-	async function update(value: RelationItem[]) {
-		console.log('Updating with value:', value);
-		
-		const [ids, staged] = partition(value || [], (item: RelationItem) => typeof item !== 'object');
-		console.log('Partitioned - ids:', ids, 'staged:', staged);
-
-		if (!ids.length) {
-			items.value = [...staged];
-			return;
-		}
-
-		const cached = items.value.filter(
-			(item: RelationItem) =>
-				typeof item === 'object' &&
-				item[relationInfo.value.junctionPrimaryKeyField.field] &&
-				ids.includes(item[relationInfo.value.junctionPrimaryKeyField.field])
-		);
-
-		if (cached.length === ids.length) {
-			items.value = [...cached, ...staged];
-			return;
-		}
-
-		loading.value = true;
-		try {
-			const response = await api.get(getEndpoint(relationInfo.value.junctionCollection.collection), {
-				params: {
-					fields: relationalFetchFields.value,
-					limit: ids.length,
-					filter: {
-						id: {
-							_in: ids.join(','),
-						},
-					},
-					deep: {
-						[relationInfo.value.junctionField.field]: {
-							_filter: {}
-						}
-					},
-					...getSortingQuery(relationInfo.value.junctionField.field),
-				},
-			});
-
-			if (response?.data?.data && Array.isArray(response.data.data)) {
-				items.value = [...response.data.data, ...staged];
-			} else {
-				items.value = [...staged];
-			}
-		} catch (error) {
-			console.error('Error fetching items:', error);
-			items.value = [...staged];
-		} finally {
-			loading.value = false;
-		}
-	}
-}
+watch(displayItems, (newItems) => {
+}, { deep: true });
 
 function getSortingQuery(path?: string): Object {
 	if (!relationInfo.value) return {};
@@ -685,15 +756,332 @@ async function onInputKeyDown(event: KeyboardEvent) {
 		return;
 	}
 }
-</script>
 
-<style scoped>
-.add-custom {
-	font-style: oblique;
+function usePreviews(value: Ref<RelationItem[] | StagedChanges>) {
+	const loading = ref<boolean>(false);
+
+	if (!relationInfo.value) return { loading };
+
+	watch(
+		value,
+		async (newValue) => {
+			
+			if (!newValue) return;
+			
+			if (Array.isArray(newValue)) {
+				currentIds.value = newValue;
+				await loadItems(newValue);
+			} 
+			else if ('create' in newValue) {
+				stagedChanges.value = newValue;
+				await consolidateDisplay();
+			}
+		},
+		{ immediate: true }
+	);
+
+	return { loading };
 }
 
-.no-items {
-	color: var(--foreground-subdued);
+watch(value, (newValue) => {
+});
+
+watch(displayItems, (newValue) => {
+});
+
+watch(relationInfo, (newValue) => {
+});
+
+// Function to load items by IDs
+async function loadItems(ids: (string | number)[]) {
+	if (!relationInfo.value || !ids.length) {
+		displayItems.value = [];
+		return;
+	}
+	
+	loading.value = true;
+	try {
+		const response = await api.get(getEndpoint(relationInfo.value.junctionCollection.collection), {
+			params: {
+				fields: fetchFields.value,
+				filter: {
+					id: {
+						_in: ids.filter(id => typeof id === 'number').join(','),
+					},
+				},
+				deep: {
+					[relationInfo.value.junctionField.field]: {
+						_filter: {}
+					}
+				}
+			},
+		});
+
+		if (response?.data?.data) {
+			displayItems.value = response.data.data;
+		}
+	} catch (error) {
+		console.error('Error loading items:', JSON.stringify(error));
+	} finally {
+		loading.value = false;
+	}
+}
+
+// Function to consolidate current items with staged changes
+async function consolidateDisplay() {
+	if (!relationInfo.value) return;
+	
+	const junctionField = relationInfo.value.junctionField.field;
+	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
+
+	try {
+		// Start with existing items from the database
+		let workingItems = displayItems.value.filter(item => item[junctionPkField]);
+
+		// Apply updates to existing items
+		stagedChanges.value.update.forEach(update => {
+			const index = workingItems.findIndex(
+				item => item[junctionPkField] === update.id
+			);
+			if (index !== -1) {
+				workingItems[index] = {
+					...workingItems[index],
+					[junctionField]: {
+						...workingItems[index][junctionField],
+						...update[junctionField]
+					}
+				};
+			}
+		});
+
+		// Add staged created items
+		workingItems = [
+			...workingItems,
+			...stagedChanges.value.create
+		];
+
+		// Update displayItems with the consolidated list
+		displayItems.value = workingItems;
+		
+	} catch (error) {
+		console.error('Error in consolidateDisplay:', error);
+	}
+}
+
+// Add a watch on the primaryKey to detect when the parent item is saved
+watch(
+	() => props.primaryKey,
+	async (newKey, oldKey) => {
+		if (newKey && newKey !== oldKey) {
+			// Reset staged changes since the parent item was saved
+			stagedChanges.value = {
+				create: [],
+				update: [],
+				delete: []
+			};
+			
+			// Reload the actual items from the database
+			if (Array.isArray(value.value)) {
+				await loadItems(value.value);
+			}
+		}
+	}
+);
+
+// Modify the existing watch on value to handle the reset case
+watch(
+	value,
+	async (newValue) => {
+		if (!newValue) {
+			displayItems.value = [];
+			currentIds.value = [];
+			stagedChanges.value = {
+				create: [],
+				update: [],
+				delete: []
+			};
+			return;
+		}
+		
+		if (Array.isArray(newValue)) {
+			currentIds.value = newValue;
+			await loadItems(newValue);
+		} else if ('create' in newValue) {
+			stagedChanges.value = newValue;
+			await consolidateDisplay();
+		}
+	},
+	{ deep: true }
+);
+
+// First, add a computed property to check if an item is staged for deletion
+const isItemDeleted = (item: any) => {
+	if (!relationInfo.value) return false;
+	return stagedChanges.value.delete.includes(item[relationInfo.value.junctionPrimaryKeyField.field]);
+};
+
+function getItemIcon(item: any): string {
+	if (!relationInfo.value) return 'close';
+	
+	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
+	
+	// For newly created items (no junction ID), show delete icon
+	if (!item[junctionPkField]) {
+		return 'delete';
+	}
+	
+	// For existing items, show restore if marked for deletion, otherwise close
+	return isItemDeleted(item) ? 'settings_backup_restore' : 'close';
+}
+
+const updateWidth = () => {
+	if (inputRef.value) {
+		inputWidth.value = inputRef.value.offsetWidth;
+	}
+};
+
+// Single onMounted handler
+onMounted(() => {
+	// Create resize observer
+	resizeObserver.value = new ResizeObserver((entries) => {
+		for (const entry of entries) {
+			if (entry.target === wrapperRef.value) {
+				const width = entry.contentRect.width;
+				// Subtract scrollbar width if needed
+				const scrollbarWidth = entry.target.offsetWidth - width;
+				menuStyle.value = {
+					width: `${width - scrollbarWidth}px`
+				};
+			}
+		}
+	});
+
+	// Start observing
+	if (wrapperRef.value) {
+		resizeObserver.value.observe(wrapperRef.value);
+	}
+
+	updateWidth();
+	window.addEventListener('resize', updateWidth);
+});
+
+// Single onUnmounted handler
+onUnmounted(() => {
+	if (resizeObserver.value) {
+		resizeObserver.value.disconnect();
+	}
+	window.removeEventListener('resize', updateWidth);
+});
+
+// Watch for menu activation to ensure width is correct when menu opens
+watch(menuActive, async (newValue) => {
+	if (newValue) {
+		await nextTick();
+		
+		// Get input width from wrapper
+		const wrapperWidth = wrapperRef.value?.offsetWidth;
+		
+		if (wrapperWidth) {
+			menuStyle.value = {
+				width: `${wrapperWidth}px`
+			};
+		}
+	}
+});
+
+const wrapperRef = ref<HTMLElement | null>(null);
+const menuStyle = ref({
+	width: '0px'
+});
+
+// Add ResizeObserver setup
+const resizeObserver = ref<ResizeObserver | null>(null);
+</script>
+
+<style lang="scss" scoped>
+.search-wrapper {
+	position: relative;
+	width: 100%;
+}
+
+.input-wrapper {
+	width: 100%;
+}
+
+:deep(.v-menu-popper.attached) {
+	position: fixed !important;
+	left: 0;
+	margin-top: 4px;
+	z-index: 500;
+
+	.v-menu-content {
+		width: 100% !important;
+		background-color: var(--theme--background);
+		border-radius: var(--theme--border-radius);
+		box-shadow: var(--theme--card--shadow);
+		padding: 0;
+		box-sizing: border-box;
+		overflow: hidden;
+	}
+}
+
+.menu-list {
+	background-color: var(--theme--background);
+	border-radius: var(--theme--border-radius);
+	box-sizing: border-box;
+	width: 100%;
+	overflow: visible;
+
+	.v-list {
+		width: 100%;
+		padding: var(--v-list-padding);
+		box-sizing: border-box;
+		max-height: 300px;
+		overflow-y: auto;
+	}
+}
+
+/* Scrollbar styles */
+.v-list {
+	&::-webkit-scrollbar {
+		width: 8px;
+		height: 8px;
+	}
+
+	&::-webkit-scrollbar-track {
+		background-color: var(--theme--background);
+	}
+
+	&::-webkit-scrollbar-thumb {
+		background-color: var(--theme--primary);
+		border-radius: 4px;
+	}
+
+	.v-list-item {
+		margin-bottom: var(--v-list-item-padding);
+		
+		&:last-child {
+			margin-bottom: 0;
+		}
+	}
+}
+
+/* Transitions */
+:deep(.v-menu-enter-active),
+:deep(.v-menu-leave-active) {
+	transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+:deep(.v-menu-enter-from),
+:deep(.v-menu-leave-to) {
+	opacity: 0;
+	transform: translateY(-4px);
+}
+
+/* Other existing styles */
+.content {
+	padding: var(--content-padding);
+	padding-top: 0;
 }
 
 .tags {
@@ -701,100 +1089,49 @@ async function onInputKeyDown(event: KeyboardEvent) {
 	flex-wrap: wrap;
 	align-items: center;
 	justify-content: flex-start;
-	padding: 4px 0;
+	padding: var(--v-list-padding);
+	gap: var(--v-list-item-padding);
 	width: 100%;
-}
-
-.tag {
-	flex: 1 1 100%;
 	margin-top: 8px;
-	cursor: pointer;
-	box-sizing: border-box;
-
-	--v-chip-background-color: var(--theme--primary);
-	--v-chip-color: var(--foreground-inverted);
-	--v-chip-background-color-hover: var(--theme--primary);
-	--v-chip-close-color: var(--theme--primary);
-	--v-chip-close-color-hover: var(--white);
-	transition: all var(--fast) var(--transition);
 }
 
-.tag:hover {
-	--v-chip-close-color: var(--white);
-}
-
-::v-deep .v-chip .chip-content {
-	width: 100% !important;
-	justify-content: space-between !important;
-	display: flex !important;
-	align-items: center !important;
-	padding: 7px;
-	font-size: 16px;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.v-chip.label {
-	width: 100%;
-	display: block;
-	background-color: white;
-	color: #4f5464;
-	border: 2px solid #e4eaf1;
-	height: auto;
-	box-sizing: border-box;
-}
-
-.layout {
-	padding: 10px 0 0 40px;
-}
-
-::v-deep(.limited-content img) {
-	max-height: 40px;
-	max-height: 40px;
-	object-fit: cover;
-	border-radius: 8px;
-
-}
-</style>
-
-<style lang="scss" scoped>
 .render-template-wrapper {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 8px;
 	width: 100%;
-	padding: var(--v-list-item-padding);
+}
+
+:deep(.render-template-wrapper) {
+	.field p img {
+		max-height: 40px !important;
+		border-radius: 4px;
+		vertical-align: middle;
+		width: auto !important;
+		object-fit: contain;
+		margin: 0px 4px;
+	}
 }
 
 .field {
 	display: inline-flex;
 	max-width: 100%;
 
-	:deep(.render-template) {
-		display: inline;
-		
-		img {
-			height: 24px;
-			width: 24px;
-			object-fit: cover;
-			border-radius: var(--border-radius);
-			vertical-align: -6px;
-		}
+	:deep(img) {
+		max-height: 40px;
+		width: auto;
+		vertical-align: middle;
+		border-radius: 4px;
+		margin: 4px;
+	}
 
-		span {
-			display: inline;
-			white-space: nowrap;
-			overflow: hidden;
-			text-overflow: ellipsis;
-		}
+	:deep(p) {
+		margin: 0;
+		display: inline;
 	}
 }
 
 .v-list-item {
-	:deep(.v-list-item-content) {
-		flex-direction: row;
-		gap: 12px;
-	}
+	transition: background-color 0.2s ease, color 0.2s ease;
 }
 </style>

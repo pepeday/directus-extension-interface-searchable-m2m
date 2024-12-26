@@ -1,6 +1,6 @@
 {
-	"name": "custom-tags-m2m",
-	"description": "Please enter a description for your extension",
+	"name": "searchable-m2m",
+	"description": "Searchable M2M interface",
 	"icon": "extension",
 	"version": "1.0.0",
 	"keywords": [
