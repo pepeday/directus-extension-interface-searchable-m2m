@@ -402,33 +402,9 @@ async function openEditDrawer(
 	}
 ) {
 	try {
-		if (!relationInfo.value?.relatedCollection?.collection) return;
-
-		const junctionId = item[relationInfo.value.junctionPrimaryKeyField.field];
-		const junctionField = relationInfo.value.junctionField.field;
-		
-		// First check staged updates
-		const stagedUpdate = stagedChanges.value.update.find(update => update.id === junctionId);
-		if (stagedUpdate) {
-			editItem.value = {
-				...item[junctionField],
-				...stagedUpdate[junctionField],
-				junction_id: junctionId
-			};
-			editDrawer.value = true;
-			
-			const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
-			editFields.value = schemaResponse.data.data;
-			return;
-		}
-		
-		// Check if this is a staged created item
-		const isCreatedItem = !junctionId && item[junctionField];
-		if (isCreatedItem) {
-			editItem.value = {
-				...item[junctionField],
-				junction_id: null
-			};
+		// Check if this is a new item (no ID)
+		if (!item[field].id) {
+			editItem.value = { ...item[field] };
 			editDrawer.value = true;
 			
 			const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
@@ -436,29 +412,13 @@ async function openEditDrawer(
 			return;
 		}
 
-		// If no staged changes, fetch from API
-		const relatedItemId = item[field]?.id;
-		if (relatedItemId) {
-			const response = await api.get(
-				`/items/${relationInfo.value.relatedCollection.collection}/${relatedItemId}`,
-				{
-					params: {
-						fields: '*'
-					}
-				}
-			);
+		const response = await api.get(`/items/${relationInfo.value.relatedCollection.collection}/${item[field].id}`, {
+			params: {
+				fields: '*'
+			}
+		});
 
-			editItem.value = {
-				...response.data.data,
-				junction_id: junctionId
-			};
-		} else {
-			editItem.value = {
-				...item[field],
-				junction_id: junctionId
-			};
-		}
-		
+		editItem.value = response.data.data || { ...item[field] };
 		editDrawer.value = true;
 
 		const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
