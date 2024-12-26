@@ -341,11 +341,6 @@ async function saveEdit() {
 		const junctionId = editItem.value?.junction_id;
 		const junctionField = relationInfo.value.junctionField.field;
 		
-		console.log('saveEdit - Starting edit with:', JSON.stringify({
-			junctionId,
-			editItem: editItem.value,
-			stagedChanges: stagedChanges.value
-		}, null, 2));
 
 		const newStagedChanges = {
 			create: [...stagedChanges.value.create],
@@ -360,14 +355,6 @@ async function saveEdit() {
 					   item[junctionField].name === stagedChanges.value.create[stagedChanges.value.create.length - 1][junctionField].name
 			);
 
-			console.log('saveEdit - Created item match:', JSON.stringify({
-				displayItemIndex,
-				matchAttempt: {
-					lookingFor: 'last created item',
-					displayItems: displayItems.value,
-					createItems: stagedChanges.value.create
-				}
-			}, null, 2));
 
 			if (displayItemIndex !== -1) {
 				// Update both the staged changes and display items
@@ -399,7 +386,6 @@ async function saveEdit() {
 			});
 		}
 		
-		console.log('saveEdit - Emitting changes:', JSON.stringify(newStagedChanges, null, 2));
 		emit('input', newStagedChanges);
 		editDrawer.value = false;
 	} catch (error) {
@@ -691,7 +677,6 @@ async function findByKeyword(keyword: string): Promise<Record<string, any> | nul
 const { loading } = usePreviews(value);
 
 watch(displayItems, (newItems) => {
-	console.log('DisplayItems changed:', JSON.stringify(newItems));
 }, { deep: true });
 
 function getSortingQuery(path?: string): Object {
@@ -780,7 +765,6 @@ function usePreviews(value: Ref<RelationItem[] | StagedChanges>) {
 	watch(
 		value,
 		async (newValue) => {
-			console.log('Value changed:', JSON.stringify(newValue));
 			
 			if (!newValue) return;
 			
@@ -800,28 +784,23 @@ function usePreviews(value: Ref<RelationItem[] | StagedChanges>) {
 }
 
 watch(value, (newValue) => {
-	console.log('Value changed:', JSON.stringify(newValue));
 });
 
 watch(displayItems, (newValue) => {
-	console.log('DisplayItems changed:', JSON.stringify(newValue));
 });
 
 watch(relationInfo, (newValue) => {
-	console.log('RelationInfo changed:', JSON.stringify(newValue));
 });
 
 // Function to load items by IDs
 async function loadItems(ids: (string | number)[]) {
 	if (!relationInfo.value || !ids.length) {
-		console.log('loadItems - No items to load, clearing displayItems');
 		displayItems.value = [];
 		return;
 	}
 	
 	loading.value = true;
 	try {
-		console.log('loadItems - Loading items for IDs:', JSON.stringify(ids));
 		const response = await api.get(getEndpoint(relationInfo.value.junctionCollection.collection), {
 			params: {
 				fields: fetchFields.value,
@@ -839,7 +818,6 @@ async function loadItems(ids: (string | number)[]) {
 		});
 
 		if (response?.data?.data) {
-			console.log('loadItems - Received data:', response.data.data);
 			displayItems.value = response.data.data;
 		}
 	} catch (error) {
@@ -998,12 +976,10 @@ onUnmounted(() => {
 // Watch for menu activation to ensure width is correct when menu opens
 watch(menuActive, async (newValue) => {
 	if (newValue) {
-		console.log('Menu opening...');
 		await nextTick();
 		
 		// Get input width from wrapper
 		const wrapperWidth = wrapperRef.value?.offsetWidth;
-		console.log('Wrapper width:', wrapperWidth);
 		
 		if (wrapperWidth) {
 			menuStyle.value = {
