@@ -6,93 +6,87 @@
 	</v-notice>
 
 	<template v-else>
-		<div class="search-wrapper" ref="wrapperRef">
-			<v-menu 
-				v-if="selectAllowed" 
-				v-model="menuActive" 
-				attached
-				full-height
-				placement="bottom-start"
-				ref="menuRef"
-			>
-				<template #activator="{ active }">
-					<div class="input-wrapper">
-						<v-input 
-							ref="inputRef" 
-							v-model="localInput" 
-							:placeholder="placeholder || t('search_items')"
-							:disabled="disabled" 
-							@keydown="onInputKeyDown" 
-							@focus="menuActive = true" 
-							style="width: 100%;"
-						>
-							<template v-if="iconLeft" #prepend>
-								<v-icon v-if="iconLeft" :name="iconLeft" />
-							</template>
-							
-							<template #append>
-								<v-icon v-if="iconRight" :name="iconRight" />
-							</template>
-						</v-input>
-					</div>
-				</template>
+		<v-menu 
+			v-if="selectAllowed" 
+			v-model="menuActive" 
+			attached
+			:close-on-content-click="false"
+		>
+			<template #activator="{ active }">
+				<v-input 
+					ref="inputRef" 
+					v-model="localInput" 
+					:placeholder="placeholder || t('search_items')"
+					:disabled="disabled" 
+					@keydown="onInputKeyDown" 
+					@focus="menuActive = true" 
+				>
+					<template v-if="iconLeft" #prepend>
+						<v-icon v-if="iconLeft" :name="iconLeft" />
+					</template>
+					
+					<template #append>
+						<v-progress-circular v-if="isSearching" indeterminate small />
+						<v-icon v-else-if="iconRight" :name="iconRight" />
+					</template>
+				</v-input>
+			</template>
 
-				<div class="menu-list" :style="menuStyle">
-					<v-list v-if="!disabled && (showAddCustom || suggestedItems.length)">
-						<v-list-item v-if="showAddCustom" clickable @click="stageLocalInput">
-							<v-list-item-content v-tooltip="t('interfaces.tags.add_tags')" class="add-custom">
-								{{
-									t('field_in_collection', {
-										field: localInput,
-										collection: isMulti ? t('select_all') : t('create_item'),
-									})
-								}}
+			<div class="menu-list">
+				<v-list v-if="!disabled && (showAddCustom || suggestedItems.length)">
+					<v-list-item v-if="showAddCustom" clickable @click="stageLocalInput">
+						<v-list-item-content v-tooltip="t('interfaces.tags.add_tags')" class="add-custom">
+							{{
+								t('field_in_collection', {
+									field: localInput,
+									collection: isMulti ? t('select_all') : t('create_item'),
+								})
+							}}
+						</v-list-item-content>
+					</v-list-item>
+
+					<v-divider v-if="showAddCustom && suggestedItems.length" />
+					<template v-if="suggestedItems.length">
+
+						<v-list-item 
+							v-for="(item, index) in suggestedItems"
+							:key="item[relationInfo.relatedPrimaryKeyField.field]"
+							:active="index === suggestedItemsSelected" 
+							clickable 
+							@click="() => stageItemObject(item)"
+						>
+							<v-list-item-content>
+								<div class="render-template-wrapper">
+									<template v-for="field in getFieldsFromTemplate(props.template)" :key="field">
+										<div v-if="field.includes('html') && item[field.replace(relationInfo.junctionField.field + '.', '')]" 
+											class="field" 
+											v-html="item[field.replace(relationInfo.junctionField.field + '.', '')]"
+										/>
+										<template v-else>
+											<render-template
+												v-if="relationInfo && item"
+												:collection="relationInfo.relatedCollection.collection"
+												:item="item"
+												:template="`{{${field.replace(relationInfo.junctionField.field + '.', '')}}}`"
+											/>
+										</template>
+									</template>
+								</div>
 							</v-list-item-content>
 						</v-list-item>
 
-						<v-divider v-if="showAddCustom && suggestedItems.length" />
-						<template v-if="suggestedItems.length">
-
-							<v-list-item 
-								v-for="(item, index) in suggestedItems"
-								:key="item[relationInfo.relatedPrimaryKeyField.field]"
-								:active="index === suggestedItemsSelected" 
-								clickable 
-								@click="() => stageItemObject(item)"
-							>
-								<v-list-item-content>
-									<div class="render-template-wrapper">
-										<template v-for="field in getFieldsFromTemplate(props.template)" :key="field">
-											<div v-if="field.includes('html') && item[field.replace(relationInfo.junctionField.field + '.', '')]" 
-												class="field" 
-												v-html="item[field.replace(relationInfo.junctionField.field + '.', '')]"
-											/>
-											<template v-else>
-												<render-template
-													v-if="relationInfo && item"
-													:collection="relationInfo.relatedCollection.collection"
-													:item="item"
-													:template="`{{${field.replace(relationInfo.junctionField.field + '.', '')}}}`"
-												/>
-											</template>
-										</template>
-									</div>
-								</v-list-item-content>
-							</v-list-item>
 
 
+					</template>
+				</v-list>
 
-						</template>
-					</v-list>
-
-					<v-list v-else-if="!disabled && localInput && !createAllowed">
-						<v-list-item class="no-items">
-							{{ t('no_items') }}
-						</v-list-item>
-					</v-list>
-				</div>
-			</v-menu>
-		</div>
+				<v-list v-else-if="!disabled && localInput && !createAllowed">
+					<v-list-item class="no-items">
+						{{ t('no_items') }}
+					</v-list-item>
+				</v-list>
+			</div>
+		</v-menu>
 
 		<v-skeleton-loader v-if="loading" type="block-list-item" />
 
@@ -163,12 +157,12 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, ref, toRefs, Ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
+import { computed, ref, toRefs, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { debounce, partition } from 'lodash';
-import { Filter, LogicalFilterAND, LogicalFilterOR, FieldFilter } from '@directus/types';
+import { debounce } from 'lodash';
+import { Filter } from '@directus/types';
 import { useApi, useStores } from '@directus/composables';
-import { parseFilter, getEndpoint, getFieldsFromTemplate } from '@directus/utils';
+import { getEndpoint, getFieldsFromTemplate } from '@directus/utils';
 import { useRelationM2M } from './use-relations';
 
 type RelationFK = string | number | BigInt;
@@ -214,6 +208,7 @@ const props = withDefaults(
 		sortDirection?: string | null;
 		iconLeft?: string | null;
 		iconRight?: string | null;
+		searchFields: string[];
 	}>(),
 	{
 		value: () => [],
@@ -561,6 +556,8 @@ async function refreshSuggestions(keyword: string) {
 		return;
 	}
 
+	isSearching.value = true;  // Set loading state to true
+
 	const currentIds = displayItems.value
 		.map((item: RelationItem): RelationFK =>
 			item[relationInfo.value.junctionField.field]?.[relationInfo.value.relatedPrimaryKeyField.field]
@@ -583,32 +580,44 @@ async function refreshSuggestions(keyword: string) {
 		});
 	}
 
-	// Add the keyword search filter
-	filters.push({
-		[props.referencingField]: {
-			_contains: keyword,
-		},
-	});
+	// Combine and deduplicate search fields
+	const allSearchFields = Array.from(new Set([props.referencingField, ...(props.searchFields || [])]));
+	console.log('Search fields:', allSearchFields);
+
+	// Create _or filter for all fields
+	const searchFilter = {
+		_or: allSearchFields.map(field => ({
+			[field]: {
+				_icontains: keyword,
+			}
+		}))
+	};
+	
+	filters.push(searchFilter);
+	
+	console.log('Filter:', JSON.stringify(filters, null, 2));
 
 	try {
 		const response = await api.get(getEndpoint(relationInfo.value.relatedCollection.collection), {
 			params: {
-					limit: 10,
-					fields: [
-						relationInfo.value.relatedPrimaryKeyField.field,
-						props.referencingField,
-						...getFieldsFromTemplate(props.template || '')
-							.map(field => field.replace(relationInfo.value.junctionField.field + '.', '')),
-					],
-					filter: filters.length > 1 ? { _and: filters } : filters[0],
-					...getSortingQuery(),
-				},
+				limit: 10,
+				fields: [
+					relationInfo.value.relatedPrimaryKeyField.field,
+					props.referencingField,
+					...getFieldsFromTemplate(props.template || '')
+						.map(field => field.replace(relationInfo.value.junctionField.field + '.', '')),
+				],
+				filter: filters.length > 1 ? { _and: filters } : filters[0],
+				...getSortingQuery(),
+			},
 		});
 
 		suggestedItems.value = response?.data?.data || [];
 	} catch (error) {
-		console.error('Error fetching suggestions:', JSON.stringify(error));
+		console.error('Error fetching suggestions:', error);
 		suggestedItems.value = [];
+	} finally {
+		isSearching.value = false;  // Reset loading state
 	}
 }
 
@@ -956,89 +965,17 @@ const menuStyle = ref({
 
 // Add ResizeObserver setup
 const resizeObserver = ref<ResizeObserver | null>(null);
+
+// Add this with other refs near the top of the file
+const isSearching = ref(false);
 </script>
 
 <style lang="scss" scoped>
-.search-wrapper {
-	position: relative;
-	width: 100%;
-}
-
-.input-wrapper {
-	width: 100%;
-}
-
-:deep(.v-menu-popper.attached) {
-	position: fixed !important;
-	left: 0;
-	margin-top: 4px;
-	z-index: 500;
-
-	.v-menu-content {
-		width: 100% !important;
-		background-color: var(--theme--background);
-		border-radius: var(--theme--border-radius);
-		box-shadow: var(--theme--card--shadow);
-		padding: 0;
-		box-sizing: border-box;
-		overflow: hidden;
-	}
-}
-
-.menu-list {
-	background-color: var(--theme--background);
-	border-radius: var(--theme--border-radius);
-	box-sizing: border-box;
-	width: 100%;
-	overflow: visible;
-
-	.v-list {
-		width: 100%;
-		padding: var(--v-list-padding);
-		box-sizing: border-box;
-		max-height: 300px;
-		overflow-y: auto;
-	}
-}
-
-/* Scrollbar styles */
 .v-list {
-	&::-webkit-scrollbar {
-		width: 8px;
-		height: 8px;
-	}
-
-	&::-webkit-scrollbar-track {
-		background-color: var(--theme--background);
-	}
-
-	&::-webkit-scrollbar-thumb {
-		background-color: var(--theme--primary);
-		border-radius: 4px;
-	}
-
-	.v-list-item {
-		margin-bottom: var(--v-list-item-padding);
-		
-		&:last-child {
-			margin-bottom: 0;
-		}
-	}
+	--v-list-padding: 0 0 4px;
 }
 
-/* Transitions */
-:deep(.v-menu-enter-active),
-:deep(.v-menu-leave-active) {
-	transition: opacity 0.15s ease, transform 0.15s ease;
-}
-
-:deep(.v-menu-enter-from),
-:deep(.v-menu-leave-to) {
-	opacity: 0;
-	transform: translateY(-4px);
-}
-
-/* Other existing styles */
+/* Field and template styles */
 .content {
 	padding: var(--content-padding);
 	padding-top: 0;
@@ -1093,5 +1030,17 @@ const resizeObserver = ref<ResizeObserver | null>(null);
 
 .v-list-item {
 	transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.many-to-many {
+	width: 100%;
+}
+
+.actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
 }
 </style>
