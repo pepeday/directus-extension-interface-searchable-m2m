@@ -6,20 +6,14 @@
 	</v-notice>
 
 	<template v-else>
-		<v-menu 
-			v-if="selectAllowed" 
-			v-model="menuActive" 
-			attached
-			:close-on-content-click="false"
-		>
-			<template #activator="{ active }">
-				<v-input 
-					ref="inputRef" 
-					v-model="localInput" 
+		<v-menu v-if="selectAllowed" v-model="menuActive" attached>
+			<template #activator="{ toggle }">
+				<v-input
+					ref="inputRef"
+					v-model="localInput"
 					:placeholder="placeholder || t('search_items')"
-					:disabled="disabled" 
-					@keydown="onInputKeyDown" 
-					@focus="menuActive = true" 
+					:disabled="disabled"
+					@focus="toggle"
 				>
 					<template v-if="iconLeft" #prepend>
 						<v-icon v-if="iconLeft" :name="iconLeft" />
@@ -1014,11 +1008,13 @@ const resizeObserver = ref<ResizeObserver | null>(null);
 const isSearching = ref(false);
 </script>
 
-<style lang="scss" scoped>
-.v-list {
-	--v-list-padding: 0 0 4px;
+<style>
+.v-menu-popper {
+	max-width: min-content !important;
 }
+</style>
 
+<style lang="scss" scoped>
 /* Field and template styles */
 .content {
 	padding: var(--content-padding);
@@ -1087,4 +1083,5 @@ const isSearching = ref(false);
 	gap: 8px;
 	width: 100%;
 }
+
 </style>
