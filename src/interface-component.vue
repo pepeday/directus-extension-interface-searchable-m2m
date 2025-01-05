@@ -13,6 +13,7 @@
 					v-model="localInput"
 					:placeholder="placeholder || t('search_items')"
 					:disabled="disabled"
+					@keydown="onInputKeyDown"
 					@focus="toggle"
 				>
 					<template v-if="iconLeft" #prepend>
@@ -752,6 +753,9 @@ async function onInputKeyDown(event: KeyboardEvent) {
 
 	if (event.key === 'ArrowDown' || event.key === 'Tab') {
 		event.preventDefault();
+		console.log('ArrowDown pressed');
+		console.log('Current selected:', suggestedItemsSelected.value);
+		console.log('Suggested items:', suggestedItems.value);
 		if (suggestedItems.value.length < 1) return;
 		// Select next from the list, if bottom, then go first.
 		suggestedItemsSelected.value =
