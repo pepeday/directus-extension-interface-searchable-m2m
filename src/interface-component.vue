@@ -621,7 +621,6 @@ async function refreshSuggestions(keyword: string) {
 
 	// Combine and deduplicate search fields
 	const allSearchFields = Array.from(new Set([props.referencingField, ...(props.searchFields || [])]));
-	console.log('Search fields:', allSearchFields);
 
 	// Create _or filter for all fields
 	const searchFilter = {
@@ -634,7 +633,6 @@ async function refreshSuggestions(keyword: string) {
 	
 	filters.push(searchFilter);
 	
-	console.log('Filter:', JSON.stringify(filters, null, 2));
 
 	try {
 		const response = await api.get(getEndpoint(relationInfo.value.relatedCollection.collection), {
@@ -753,9 +751,6 @@ async function onInputKeyDown(event: KeyboardEvent) {
 
 	if (event.key === 'ArrowDown' || event.key === 'Tab') {
 		event.preventDefault();
-		console.log('ArrowDown pressed');
-		console.log('Current selected:', suggestedItemsSelected.value);
-		console.log('Suggested items:', suggestedItems.value);
 		if (suggestedItems.value.length < 1) return;
 		// Select next from the list, if bottom, then go first.
 		suggestedItemsSelected.value =
