@@ -162,6 +162,19 @@ export default defineInterface({
 					},
 				},
 			},
+			{
+				field: 'searchFields',
+				name: '$t:search_fields',
+				type: 'json',
+				meta: {
+					width: 'full',
+					interface: 'system-fields',
+					options: {
+						collectionName: relations.m2o?.related_collection,
+						typeAllowList: ['string', 'text'],
+					},
+				},
+			},
 		];
 	},
 	recommendedDisplays: ['related-values'],
