@@ -336,7 +336,6 @@ async function saveEdit() {
 		const junctionId = editItem.value?.junction_id;
 		const junctionField = relationInfo.value.junctionField.field;
 		
-
 		const newStagedChanges = {
 			create: [...stagedChanges.value.create],
 			update: [...stagedChanges.value.update],
@@ -344,22 +343,19 @@ async function saveEdit() {
 		};
 
 		if (!junctionId) {
-			// For newly created items, find the matching item in displayItems
+			// For newly created items - keep existing logic unchanged
 			const displayItemIndex = displayItems.value.findIndex(
 				item => !item[relationInfo.value.junctionPrimaryKeyField.field] && 
 					   item[junctionField].name === stagedChanges.value.create[stagedChanges.value.create.length - 1][junctionField].name
 			);
 
-
 			if (displayItemIndex !== -1) {
-				// Update both the staged changes and display items
 				newStagedChanges.create[newStagedChanges.create.length - 1] = {
 					[junctionField]: {
 						...editItem.value
 					}
 				};
 
-				// Update display items immediately
 				displayItems.value[displayItemIndex] = {
 					[junctionField]: {
 						...editItem.value
@@ -367,20 +363,21 @@ async function saveEdit() {
 				};
 			}
 		} else {
-			// Handle existing items
-			const updateIndex = newStagedChanges.update.findIndex(update => update.id === junctionId);
+			// For existing items only - new logic
+			const updateIndex = newStagedChanges.update.findIndex(
+				update => update.id === junctionId
+			);
 			if (updateIndex !== -1) {
 				newStagedChanges.update.splice(updateIndex, 1);
 			}
-			
-			const { junction_id, ...editData } = editItem.value;
-			
+
 			newStagedChanges.update.push({
 				id: junctionId,
-				[junctionField]: editData
+				[junctionField]: editItem.value
 			});
 		}
 		
+		stagedChanges.value = newStagedChanges;
 		emit('input', newStagedChanges);
 		editDrawer.value = false;
 	} catch (error) {
@@ -397,9 +394,40 @@ async function openEditDrawer(
 	}
 ) {
 	try {
-		// Check if this is a new item (no ID)
-		if (!item[field].id) {
-			editItem.value = { ...item[field] };
+		if (!relationInfo.value?.relatedCollection?.collection) return;
+
+		const junctionId = item[relationInfo.value.junctionPrimaryKeyField.field];
+		const junctionField = relationInfo.value.junctionField.field;
+		
+		// Check if this is a staged created item
+		const isCreatedItem = !junctionId;
+		if (isCreatedItem) {
+			// For newly created items, find the matching item in stagedChanges.create
+			const createdItemIndex = stagedChanges.value.create.findIndex(
+				createItem => createItem[junctionField].name === item[junctionField].name
+			);
+
+			if (createdItemIndex !== -1) {
+				editItem.value = {
+					...stagedChanges.value.create[createdItemIndex][junctionField],
+					junction_id: null
+				};
+				editDrawer.value = true;
+				
+				const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
+				editFields.value = schemaResponse.data.data;
+				return;
+			}
+		}
+
+		// For existing items, first check staged updates
+		const stagedUpdate = stagedChanges.value.update.find(update => update.id === junctionId);
+		if (stagedUpdate) {
+			editItem.value = {
+				...item[junctionField],
+				...stagedUpdate[junctionField],
+				junction_id: junctionId
+			};
 			editDrawer.value = true;
 			
 			const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
@@ -407,13 +435,29 @@ async function openEditDrawer(
 			return;
 		}
 
-		const response = await api.get(`/items/${relationInfo.value.relatedCollection.collection}/${item[field].id}`, {
-			params: {
-				fields: '*'
-			}
-		});
+		// If no staged changes, fetch from API
+		const relatedItemId = item[field]?.id;
+		if (relatedItemId) {
+			const response = await api.get(
+				`/items/${relationInfo.value.relatedCollection.collection}/${relatedItemId}`,
+				{
+					params: {
+						fields: '*'
+					}
+				}
+			);
 
-		editItem.value = response.data.data || { ...item[field] };
+			editItem.value = {
+				...response.data.data,
+				junction_id: junctionId
+			};
+		} else {
+			editItem.value = {
+				...item[field],
+				junction_id: junctionId
+			};
+		}
+		
 		editDrawer.value = true;
 
 		const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
