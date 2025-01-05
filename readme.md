@@ -14,10 +14,11 @@ An enhanced Many-to-Many (M2M) interface for Directus that adds search capabilit
 - ⌨️ Keyboard navigation support
 - 🔒 Respects Directus permissions system
 
-## Bugs
+## Bugs and improvements needed
 
 - Probably unnecessary use of `watch` and `nextTick`
 - Some unexpected behavior may occur
+- Search fetches all of the items fields, we can reduce to only displayed fields
 
 ## Installation
 
