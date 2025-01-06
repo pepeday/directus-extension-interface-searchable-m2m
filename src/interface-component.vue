@@ -1005,6 +1005,9 @@ const resizeObserver = ref<ResizeObserver | null>(null);
 
 // Add this with other refs near the top of the file
 const isSearching = ref(false);
+
+// Add with other refs
+const selectModalActive = ref(false);
 </script>
 
 <style>
