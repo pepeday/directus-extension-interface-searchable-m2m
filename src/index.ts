@@ -15,34 +15,48 @@ export default defineInterface({
 		return [
 			{
 				field: 'placeholder',
-				name: '$t:placeholder',
+				name: 'Enter a placeholder',
 				type: 'string',
 				meta: {
 					width: 'full',
 					interface: 'system-input-translated-string',
 					options: {
-						placeholder: '$t:enter_a_placeholder',
+						placeholder: 'Type placeholder text',
 					},
 				},
 			},
 			{
 				field: 'referencingField',
-				name: '$t:corresponding_field',
+				name: 'Reference Field',
 				type: 'string',
 				meta: {
 					width: 'full',
 					required: true,
 					interface: 'system-field',
 					options: {
+							collectionName: relations.m2o?.related_collection,
+							typeAllowList: ['string', 'text', 'integer', 'bigInteger'],
+							allowPrimaryKey: true,
+					},
+				},
+			},
+			{
+				field: 'searchFields',
+				name: 'Search Fields',
+				type: 'json',
+				meta: {
+					width: 'full',
+					interface: 'system-fields',
+					note: 'The Reference Field is always included in the search fields.',
+					options: {
 						collectionName: relations.m2o?.related_collection,
-						typeAllowList: ['string', 'text', 'integer', 'bigInteger'],
-						allowPrimaryKey: true,
+						typeAllowList: ['string', 'text'],
 					},
 				},
 			},
 			{
 				field: 'template',
-				name: '$t:display_template',
+				name: 'Display Template',
 				type: 'string',
 				meta: {
 					width: 'full',
@@ -54,7 +68,7 @@ export default defineInterface({
 			},
 			{
 				field: 'iconLeft',
-				name: '$t:icon_left',
+				name: 'Icon Left',
 				type: 'string',
 				meta: {
 					width: 'half',
@@ -63,25 +77,25 @@ export default defineInterface({
 			},
 			{
 				field: 'iconRight',
-				name: '$t:icon_right',
+				name: 'Icon Right',
 				type: 'string',
 				meta: {
 					width: 'half',
 					interface: 'select-icon',
 				},
 				schema: {
-					default_value: 'local_offer',
+					default_value: 'search',
 				},
 			},
 			{
 				field: 'allowCustom',
-				name: '$t:interfaces.select-dropdown.allow_other',
+				name: 'Allow Custom Values',
 				type: 'boolean',
 				meta: {
 					width: 'half',
 					interface: 'boolean',
 					options: {
-						label: '$t:interfaces.select-dropdown.allow_other_label',
+						label: 'Allow Custom Values',
 					},
 				},
 				schema: {
@@ -90,7 +104,7 @@ export default defineInterface({
 			},
 			{
 				field: 'allowMultiple',
-				name: '$t:allow_multiple',
+				name: 'Allow Multiple Values',
 				type: 'boolean',
 				meta: {
 					width: 'half',
@@ -105,7 +119,7 @@ export default defineInterface({
 			},
 			{
 				field: 'filter',
-				name: '$t:filter',
+				name: 'Filter',
 				type: 'json',
 				meta: {
 					interface: 'system-filter',
@@ -127,7 +141,7 @@ export default defineInterface({
 			{
 				field: 'sortField',
 				type: 'string',
-				name: '$t:sort_field',
+				name: 'Sort Field',
 				collection: relations.m2o?.related_collection,
 				meta: {
 					width: 'half',
@@ -141,7 +155,7 @@ export default defineInterface({
 			{
 				field: 'sortDirection',
 				type: 'string',
-				name: '$t:sort_direction',
+				name: 'Sort Direction',
 				schema: {
 					default_value: 'desc',
 				},
@@ -151,27 +165,14 @@ export default defineInterface({
 					options: {
 						choices: [
 							{
-								text: '$t:sort_asc',
+								text: 'Sort Ascending',
 								value: 'asc',
 							},
 							{
-								text: '$t:sort_desc',
+								text: 'Sort Descending',
 								value: 'desc',
 							},
 						],
-					},
-				},
-			},
-			{
-				field: 'searchFields',
-				name: '$t:search_fields',
-				type: 'json',
-				meta: {
-					width: 'full',
-					interface: 'system-fields',
-					options: {
-						collectionName: relations.m2o?.related_collection,
-						typeAllowList: ['string', 'text'],
 					},
 				},
 			},
