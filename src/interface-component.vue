@@ -22,7 +22,16 @@
 					
 					<template #append>
 						<v-progress-circular v-if="isSearching" indeterminate small />
-						<v-icon v-else-if="iconRight" :name="iconRight" />
+						<v-button
+							v-else-if="!disabled && selectAllowed"
+							v-tooltip.bottom="selectAllowed ? t('add_existing') : t('not_allowed')"
+							rounded
+							icon
+							secondary
+							@click="selectModalActive = true"
+						>
+							<v-icon :name="iconRight" />
+						</v-button>
 					</template>
 				</v-input>
 			</template>
@@ -148,6 +157,15 @@
 					:initial-values="editItem" />
 			</div>
 		</v-drawer>
+
+		<drawer-collection
+			v-if="!disabled"
+			v-model:active="selectModalActive"
+			:collection="relationInfo.relatedCollection.collection"
+			:filter="customFilter"
+			multiple
+			@input="select"
+		/>
 	</template>
 </template>
 
