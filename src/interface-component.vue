@@ -521,6 +521,7 @@ function deleteItem(item: any) {
 }
 
 function stageItemObject(item: Record<string, RelationItem>) {
+	console.log(JSON.stringify(item));
 	if (!relationInfo.value) return;
 	
 	const junctionField = relationInfo.value.junctionField.field;
@@ -533,10 +534,7 @@ function stageItemObject(item: Record<string, RelationItem>) {
 	
 	const newItem = {
 		[junctionField]: {
-			...item,
-			html: item.html || '',
-			status: item.status || 'draft',
-			severity: item.severity || 'low'
+			...item
 		}
 	};
 	
@@ -1056,6 +1054,17 @@ const customFilter = computed(() => {
 
 	return filter;
 });
+
+function select(items: Record<string, any>[]) {
+	console.log(JSON.stringify(items));
+	if (!Array.isArray(items)) return;
+	
+	// Process each selected item through our existing stageItemObject function
+	items.forEach(item => stageItemObject(item));
+	
+	// Close the modal after processing
+	selectModalActive.value = false;
+}
 </script>
 
 <style>
