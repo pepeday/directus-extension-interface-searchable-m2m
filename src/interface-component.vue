@@ -1026,6 +1026,36 @@ const isSearching = ref(false);
 
 // Add with other refs
 const selectModalActive = ref(false);
+
+// Add this computed property
+const customFilter = computed(() => {
+	if (!relationInfo.value) return {};
+
+	const filter: Filter = {
+		_and: []
+	};
+
+	// Add the user's filter if it exists
+	if (props.filter) {
+		filter._and.push(props.filter);
+	}
+
+	// Get IDs of currently selected items
+	const selectedIds = displayItems.value
+		.map(item => item[relationInfo.value.junctionField.field]?.[relationInfo.value.relatedPrimaryKeyField.field])
+		.filter(id => id !== undefined);
+
+	// Add filter to exclude selected items
+	if (selectedIds.length > 0) {
+		filter._and.push({
+			[relationInfo.value.relatedPrimaryKeyField.field]: {
+				_nin: selectedIds
+			}
+		});
+	}
+
+	return filter;
+});
 </script>
 
 <style>
