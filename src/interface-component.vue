@@ -27,7 +27,7 @@
 							v-tooltip.bottom="selectAllowed ? t('add_existing') : t('not_allowed')"
 							rounded
 							icon
-							secondary
+							:secondary="true"
 							@click="selectModalActive = true"
 						>
 							<v-icon :name="iconRight" />
