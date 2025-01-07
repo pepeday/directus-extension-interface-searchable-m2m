@@ -136,7 +136,7 @@
 							class="deselect" 
 							:name="getItemIcon(item)" 
 							:style="{ color: isItemDeleted(item) ? 'var(--danger)' : undefined }"
-							@click.stop="deleteItem(item)" 
+							@click.stop="handleDeleteItem(item)" 
 							v-tooltip="isItemDeleted(item) ? t('Undo Removed Item') : t('Remove Item')" 
 						/>
 					</v-list-item-action>
@@ -176,6 +176,7 @@ import { Filter } from '@directus/types';
 import { useApi, useStores } from '@directus/composables';
 import { getEndpoint, getFieldsFromTemplate } from '@directus/utils';
 import { useRelationM2M } from './use-relations';
+import { useItemManagement } from './use-item-management';
 
 type RelationFK = string | number | BigInt;
 type RelationItem = RelationFK | Record<string, any>;
@@ -326,8 +327,6 @@ const showAddCustom = computed(
 		!itemValueStaged(localInput.value)
 );
 
-const isMulti = computed(() => props.allowMultiple && fromSeparatedTag(localInput.value));
-
 watch(
 	localInput,
 	debounce((newValue: string) => {
@@ -340,60 +339,40 @@ function emitter(newValue: RelationItem[] | null) {
 	emit('input', newValue);
 }
 
-// Save the edited item
-async function saveEdit() {
-	try {
-		if (!relationInfo.value) return;
-		
-		const junctionId = editItem.value?.junction_id;
-		const junctionField = relationInfo.value.junctionField.field;
-		
-		const newStagedChanges = {
-			create: [...stagedChanges.value.create],
-			update: [...stagedChanges.value.update],
-			delete: [...stagedChanges.value.delete]
-		};
+const {
+	loading,
+	isItemDeleted,
+	getItemIcon,
+	stageItemObject,
+	saveEdit,
+	deleteItem,
+	loadItems,
+	consolidateDisplay,
+	stageLocalInput
+} = useItemManagement({
+	relationInfo,
+	displayItems,
+	stagedChanges,
+	referencingField: props.referencingField,
+	fetchFields,
+	allowMultiple: props.allowMultiple
+});
 
-		if (!junctionId) {
-			// For newly created items - keep existing logic unchanged
-			const displayItemIndex = displayItems.value.findIndex(
-				item => !item[relationInfo.value.junctionPrimaryKeyField.field] && 
-					   item[junctionField].name === stagedChanges.value.create[stagedChanges.value.create.length - 1][junctionField].name
-			);
-
-			if (displayItemIndex !== -1) {
-				newStagedChanges.create[newStagedChanges.create.length - 1] = {
-					[junctionField]: {
-						...editItem.value
-					}
-				};
-
-				displayItems.value[displayItemIndex] = {
-					[junctionField]: {
-						...editItem.value
-					}
-				};
-			}
-		} else {
-			// For existing items only - new logic
-			const updateIndex = newStagedChanges.update.findIndex(
-				update => update.id === junctionId
-			);
-			if (updateIndex !== -1) {
-				newStagedChanges.update.splice(updateIndex, 1);
-			}
-
-			newStagedChanges.update.push({
-				id: junctionId,
-				[junctionField]: editItem.value
-			});
-		}
-		
-		stagedChanges.value = newStagedChanges;
-		emit('input', newStagedChanges);
+async function handleSaveEdit() {
+	const newChanges = await saveEdit(editItem.value);
+	if (newChanges) {
+		stagedChanges.value = newChanges;
+		emit('input', newChanges);
 		editDrawer.value = false;
-	} catch (error) {
-		console.error('Error saving item:', JSON.stringify(error));
+	}
+}
+
+async function handleStageItemObject(item: Record<string, any>) {
+	const newChanges = await stageItemObject(item);
+	if (newChanges) {
+		stagedChanges.value = newChanges;
+		emit('input', newChanges);
+		localInput.value = '';
 	}
 }
 
@@ -474,103 +453,16 @@ async function openEditDrawer(
 	}
 }
 
-function deleteItem(item: any) {
-	if (!relationInfo.value) return;
-	
-	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
-	const junctionField = relationInfo.value.junctionField.field;
-	const itemId = item[junctionPkField];
-
-	// Create new copies of arrays to maintain reactivity
-	const newStagedChanges = {
-		create: [...stagedChanges.value.create],
-		update: [...stagedChanges.value.update],
-		delete: [...stagedChanges.value.delete]
-	};
-
-	if (!itemId) {
-		// For newly created items, remove from create array
-		const createIndex = newStagedChanges.create.findIndex(
-			createItem => createItem[junctionField].id === item[junctionField].id
-		);
-		
-		if (createIndex !== -1) {
-			newStagedChanges.create.splice(createIndex, 1);
-			stagedChanges.value = newStagedChanges;
-			emit('input', newStagedChanges);
-		}
-	} else {
-		// For existing items, toggle deletion
-		const deleteIndex = newStagedChanges.delete.indexOf(itemId);
-		
-		if (deleteIndex === -1) {
-			newStagedChanges.delete.push(itemId);
-		} else {
-			newStagedChanges.delete.splice(deleteIndex, 1);
-		}
-
-		stagedChanges.value = newStagedChanges;
-		emit('input', newStagedChanges);
-	}
-}
-
-function stageItemObject(item: Record<string, RelationItem>) {
-	console.log(JSON.stringify(item));
-	if (!relationInfo.value) return;
-	
-	const junctionField = relationInfo.value.junctionField.field;
-	
-	const newStagedChanges = {
-		create: [...stagedChanges.value.create],
-		update: [...stagedChanges.value.update],
-		delete: [...stagedChanges.value.delete]
-	};
-	
-	const newItem = {
-		[junctionField]: {
-			...item
-		}
-	};
-	
-	newStagedChanges.create.push(newItem);
-	
-	// Add item to displayItems immediately
-	displayItems.value = [...displayItems.value, newItem];
-	
-	emit('input', newStagedChanges);
-	localInput.value = '';
-}
-
-async function stageLocalInput() {
-	if (!props.referencingField) return;
-
-	const value = localInput.value?.trim();
-	for (const valueTag of fromSeparatedTag(value)) {
-		await stageValue(valueTag.trim());
-	}
-
-	localInput.value = '';
-}
-
-function fromSeparatedTag(input: string): string[] {
-	if (!props.allowMultiple) return [input];
-
-	return input
-		.split(/[;,]/)
-		.map((x) => x.trim())
-		.filter((x) => !!x);
-}
-
 async function stageValue(value: string) {
 	if (!value || itemValueStaged(value)) return;
 
 	try {
 		const item = await findByKeyword(value);
 		if (item) {
-			stageItemObject(item);
+			handleStageItemObject(item);
 		} else if (createAllowed.value && props.referencingField) {
 			// Create new item
-			stageItemObject({ [props.referencingField]: value });
+			handleStageItemObject({ [props.referencingField]: value });
 		}
 	} catch (err: any) {
 		console.error('Error staging value:', JSON.stringify(err));
@@ -690,8 +582,6 @@ async function findByKeyword(keyword: string): Promise<Record<string, any> | nul
 	return response?.data?.data?.[0] || null;
 }
 
-const { loading } = usePreviews(value);
-
 watch(displayItems, (newItems) => {
 }, { deep: true });
 
@@ -708,6 +598,32 @@ function getSortingQuery(path?: string): Object {
 		sort: props.sortDirection === 'desc' ? `-${field}` : field,
 	};
 }
+
+// Add a watch on value to handle loading items
+watch(
+	value,
+	async (newValue) => {
+		if (!newValue) {
+			displayItems.value = [];
+			currentIds.value = [];
+			stagedChanges.value = {
+				create: [],
+				update: [],
+				delete: []
+			};
+			return;
+		}
+		
+		if (Array.isArray(newValue)) {
+			currentIds.value = newValue;
+			await loadItems(newValue);
+		} else if ('create' in newValue) {
+			stagedChanges.value = newValue;
+			await consolidateDisplay();
+		}
+	},
+	{ immediate: true }
+);
 
 /**
  * Keyboard shortcuts and keybindings
@@ -731,9 +647,13 @@ async function onInputKeyDown(event: KeyboardEvent) {
 		if (suggestedItemsSelected.value !== null && suggestedItems.value[suggestedItemsSelected.value]) {
 			stageItemObject(suggestedItems.value[suggestedItemsSelected.value]);
 		} else if (createAllowed.value) {
-			stageLocalInput();
+			const newChanges = await stageLocalInput(localInput.value);
+			if (newChanges) {
+				stagedChanges.value = newChanges;
+				emit('input', newChanges);
+				localInput.value = '';
+			}
 		}
-		localInput.value = ''; // Clear input when Enter is clicked
 		return;
 	}
 
@@ -808,82 +728,6 @@ watch(displayItems, (newValue) => {
 watch(relationInfo, (newValue) => {
 });
 
-// Function to load items by IDs
-async function loadItems(ids: (string | number)[]) {
-	if (!relationInfo.value || !ids.length) {
-		displayItems.value = [];
-		return;
-	}
-	
-	loading.value = true;
-	try {
-		const response = await api.get(getEndpoint(relationInfo.value.junctionCollection.collection), {
-			params: {
-				fields: fetchFields.value,
-				filter: {
-					id: {
-						_in: ids.filter(id => typeof id === 'number').join(','),
-					},
-				},
-				deep: {
-					[relationInfo.value.junctionField.field]: {
-						_filter: {}
-					}
-				}
-			},
-		});
-
-		if (response?.data?.data) {
-			displayItems.value = response.data.data;
-		}
-	} catch (error) {
-		console.error('Error loading items:', JSON.stringify(error));
-	} finally {
-		loading.value = false;
-	}
-}
-
-// Function to consolidate current items with staged changes
-async function consolidateDisplay() {
-	if (!relationInfo.value) return;
-	
-	const junctionField = relationInfo.value.junctionField.field;
-	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
-
-	try {
-		// Start with existing items from the database
-		let workingItems = displayItems.value.filter(item => item[junctionPkField]);
-
-		// Apply updates to existing items
-		stagedChanges.value.update.forEach(update => {
-			const index = workingItems.findIndex(
-				item => item[junctionPkField] === update.id
-			);
-			if (index !== -1) {
-				workingItems[index] = {
-					...workingItems[index],
-					[junctionField]: {
-						...workingItems[index][junctionField],
-						...update[junctionField]
-					}
-				};
-			}
-		});
-
-		// Add staged created items
-		workingItems = [
-			...workingItems,
-			...stagedChanges.value.create
-		];
-
-		// Update displayItems with the consolidated list
-		displayItems.value = workingItems;
-		
-	} catch (error) {
-		console.error('Error in consolidateDisplay:', error);
-	}
-}
-
 // Add a watch on the primaryKey to detect when the parent item is saved
 watch(
 	() => props.primaryKey,
@@ -903,52 +747,6 @@ watch(
 		}
 	}
 );
-
-// Modify the existing watch on value to handle the reset case
-watch(
-	value,
-	async (newValue) => {
-		if (!newValue) {
-			displayItems.value = [];
-			currentIds.value = [];
-			stagedChanges.value = {
-				create: [],
-				update: [],
-				delete: []
-			};
-			return;
-		}
-		
-		if (Array.isArray(newValue)) {
-			currentIds.value = newValue;
-			await loadItems(newValue);
-		} else if ('create' in newValue) {
-			stagedChanges.value = newValue;
-			await consolidateDisplay();
-		}
-	},
-	{ deep: true }
-);
-
-// First, add a computed property to check if an item is staged for deletion
-const isItemDeleted = (item: any) => {
-	if (!relationInfo.value) return false;
-	return stagedChanges.value.delete.includes(item[relationInfo.value.junctionPrimaryKeyField.field]);
-};
-
-function getItemIcon(item: any): string {
-	if (!relationInfo.value) return 'close';
-	
-	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
-	
-	// For newly created items (no junction ID), show delete icon
-	if (!item[junctionPkField]) {
-		return 'delete';
-	}
-	
-	// For existing items, show restore if marked for deletion, otherwise close
-	return isItemDeleted(item) ? 'settings_backup_restore' : 'close';
-}
 
 const updateWidth = () => {
 	if (inputRef.value) {
