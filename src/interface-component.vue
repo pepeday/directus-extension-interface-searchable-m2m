@@ -27,10 +27,10 @@
 							v-tooltip.bottom="selectAllowed ? t('add_existing') : t('not_allowed')"
 							rounded
 							icon
-							:secondary="true"
+							secondary
 							@click="selectModalActive = true"
 						>
-							<v-icon :name="iconRight" />
+							<v-icon :name="iconRight"/>
 						</v-button>
 					</template>
 				</v-input>
@@ -146,17 +146,16 @@
 
 
 
-		<v-drawer v-model="editDrawer" :title="t('select_item')" @cancel="editDrawer = false">
-			<template #actions>
-				<v-button v-tooltip.bottom="t('save')" icon rounded @click="saveEdit">
-					<v-icon name="check" :large="true" />
-				</v-button>
-			</template>
-			<div class="content">
-				<v-form v-model="editItem" :collection="relationInfo.relatedCollection.collection" :fields="editFields"
-					:initial-values="editItem" />
-			</div>
-		</v-drawer>
+		<drawer-item
+			v-model:active="editDrawer"
+			:collection="relationInfo.relatedCollection.collection"
+			:primary-key="currentlyEditing"
+			:related-primary-key="relatedPrimaryKey"
+			:junction-field="relationInfo.junctionField.field"
+			:edits="editsAtStart"
+			:disabled="disabled"
+			@input="saveEdit"
+		/>
 
 		<drawer-collection
 			v-if="!disabled"
@@ -229,7 +228,7 @@ const props = withDefaults(
 		filter: null,
 		allowCustom: true,
 		sortDirection: 'desc',
-		iconRight: 'local_offer',
+		iconRight: 'add',
 		template: null,
 	}
 );
@@ -407,35 +406,43 @@ async function openEditDrawer(
 	}
 ) {
 	try {
+		// Safety check: Ensure the related collection exists
 		if (!relationInfo.value?.relatedCollection?.collection) return;
 
+		// Extract important identifiers:
+		// junctionId: The ID of the junction record (the M2M relationship record)
+		// junctionField: The name of the field that connects to the related item
 		const junctionId = item[relationInfo.value.junctionPrimaryKeyField.field];
 		const junctionField = relationInfo.value.junctionField.field;
 		
-		// Check if this is a staged created item
+		// PART 1: HANDLING NEWLY CREATED ITEMS
+		// These are items that don't have a junction ID yet (not saved to database)
 		const isCreatedItem = !junctionId;
 		if (isCreatedItem) {
-			// For newly created items, find the matching item in stagedChanges.create
+			// Look for this item in our staged creates by matching the name
 			const createdItemIndex = stagedChanges.value.create.findIndex(
 				createItem => createItem[junctionField].name === item[junctionField].name
 			);
 
 			if (createdItemIndex !== -1) {
-				editItem.value = {
-					...stagedChanges.value.create[createdItemIndex][junctionField],
-					junction_id: null
-				};
+				const stagedItem = stagedChanges.value.create[createdItemIndex][junctionField];
+				// For staged items, use the related item's ID as the primary key
+				currentlyEditing.value = stagedItem.id;
+				relatedPrimaryKey.value = null;  // No junction ID yet since it's a new item
 				editDrawer.value = true;
 				
+				// Get the schema for the fields
 				const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
 				editFields.value = schemaResponse.data.data;
 				return;
 			}
 		}
 
-		// For existing items, first check staged updates
+		// PART 2: HANDLING ITEMS WITH PENDING UPDATES
+		// Check if this item has any staged updates
 		const stagedUpdate = stagedChanges.value.update.find(update => update.id === junctionId);
 		if (stagedUpdate) {
+			// If there are staged updates, merge them with the original item
 			editItem.value = {
 				...item[junctionField],
 				...stagedUpdate[junctionField],
@@ -443,36 +450,23 @@ async function openEditDrawer(
 			};
 			editDrawer.value = true;
 			
+			// Get the schema for the fields
 			const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
 			editFields.value = schemaResponse.data.data;
 			return;
 		}
 
-		// If no staged changes, fetch from API
-		const relatedItemId = item[field]?.id;
+		// PART 3: HANDLING EXISTING ITEMS WITHOUT CHANGES
+		// Get the ID of the related item
+		const relatedItemId = item[field]?.[relationInfo.value.relatedPrimaryKeyField.field];
 		if (relatedItemId) {
-			const response = await api.get(
-				`/items/${relationInfo.value.relatedCollection.collection}/${relatedItemId}`,
-				{
-					params: {
-						fields: '*'
-					}
-				}
-			);
-
-			editItem.value = {
-				...response.data.data,
-				junction_id: junctionId
-			};
-		} else {
-			editItem.value = {
-				...item[field],
-				junction_id: junctionId
-			};
+			// Set the IDs using the same pattern as list-m2m.vue
+			currentlyEditing.value = relatedItemId;     // primary-key: The ID of the related item (since we're editing in the related collection)
+			relatedPrimaryKey.value = junctionId;       // related-primary-key: The junction record ID
+			editDrawer.value = true;
 		}
-		
-		editDrawer.value = true;
 
+		// Get the schema for the fields
 		const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
 		editFields.value = schemaResponse.data.data;
 	} catch (error) {
@@ -1055,16 +1049,40 @@ const customFilter = computed(() => {
 	return filter;
 });
 
-function select(items: Record<string, any>[]) {
-	console.log(JSON.stringify(items));
-	if (!Array.isArray(items)) return;
+function select(selectedIds: (string | number)[]) {
+	if (!relationInfo.value || !Array.isArray(selectedIds)) return;
+	console.log(JSON.stringify(selectedIds));
+
+	// Create all new items at once
+	const newStagedChanges = {
+		create: [...stagedChanges.value.create],
+		update: [...stagedChanges.value.update],
+		delete: [...stagedChanges.value.delete]
+	};
+
+	// Add all selected items in one go
+	selectedIds.forEach(id => {
+		const newItem = {
+			[relationInfo.value.junctionField.field]: {
+				[relationInfo.value.relatedPrimaryKeyField.field]: id
+			}
+		};
+		newStagedChanges.create.push(newItem);
+		displayItems.value = [...displayItems.value, newItem];
+	});
+
+	// Update staged changes once with all new items
+	stagedChanges.value = newStagedChanges;
+	emit('input', newStagedChanges);
 	
-	// Process each selected item through our existing stageItemObject function
-	items.forEach(item => stageItemObject(item));
-	
-	// Close the modal after processing
 	selectModalActive.value = false;
 }
+
+const editModalActive = ref(false);
+const currentlyEditing = ref<string | number | null>(null);
+const relatedPrimaryKey = ref<string | number | null>(null);
+const editsAtStart = ref<Record<string, any>>({});
+let newItem = false;
 </script>
 
 <style>
