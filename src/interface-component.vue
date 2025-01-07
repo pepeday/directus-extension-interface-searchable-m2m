@@ -1,7 +1,8 @@
 <template>
 	<v-notice
 		v-if="!relationInfo || !relationInfo.junctionCollection.collection || !relationInfo.relatedCollection.collection"
-		type="warning">
+		type="warning"
+	>
 		{{ t('relationship_not_setup') }}
 	</v-notice>
 
@@ -57,7 +58,7 @@
 							:key="item[relationInfo.relatedPrimaryKeyField.field]"
 							:active="index === suggestedItemsSelected" 
 							clickable 
-							@click="() => stageItemObject(item)"
+							@click="() => handleItemSelection(item)"
 						>
 							<v-list-item-content>
 								<div class="render-template-wrapper">
@@ -94,69 +95,72 @@
 
 		<v-skeleton-loader v-if="loading" type="block-list-item" />
 
-		<transition-group v-else-if="displayItems.length" 
+		<transition-group v-else-if="consolidatedItems.length" 
 			name="list" 
 			tag="div" 
 			class="tags"
 		>
 			<template v-if="relationInfo">
-				<v-list-item 
-					v-for="item in displayItems" 
+				<v-list-item
+					v-for="item in consolidatedItems" 
 					:key="item[relationInfo.junctionField.field]?.[relationInfo.relatedPrimaryKeyField.field]"
 					v-tooltip="t('Click to edit')" 
 					:disabled="disabled || !selectAllowed" 
-					class="link block clickable" 
+					class="link block clickable"
 					:style="{ 
 						color: isItemDeleted(item) ? 'var(--danger)' : undefined,
 						backgroundColor: isItemDeleted(item) ? 'var(--danger-alt)' : undefined
 					}"
-					@click="openEditDrawer(item, relationInfo.junctionField.field, props)"
+					@click="openEditDrawer(item)"
 				>
-					<v-list-item-content>
-						<div class="render-template-wrapper">
-							<template v-for="field in getFieldsFromTemplate(templateWithDefaults)" :key="field">
-								<div v-if="field.includes('html') && item[relationInfo.junctionField.field]?.[field.replace(relationInfo.junctionField.field + '.', '')]" 
-									class="field" 
-									v-html="item[relationInfo.junctionField.field][field.replace(relationInfo.junctionField.field + '.', '')]"
-								/>
-								<template v-else>
-									<render-template
-										v-if="relationInfo && item[relationInfo.junctionField.field]"
-										:collection="relationInfo.junctionCollection.collection"
-										:item="item"
-										:template="`{{${field}}}`"
-										/>
-								</template>
-							</template>
-						</div>
-					</v-list-item-content>
-
-					<v-list-item-action>
-						<v-icon 
-							class="deselect" 
-							:name="getItemIcon(item)" 
-							:style="{ color: isItemDeleted(item) ? 'var(--danger)' : undefined }"
-							@click.stop="deleteItem(item)" 
-							v-tooltip="isItemDeleted(item) ? t('Undo Removed Item') : t('Remove Item')" 
+					<template v-if="item[relationInfo.junctionField.field]?.$loading">
+						<v-skeleton-loader
+							type="list-item-icon"
 						/>
-					</v-list-item-action>
+					</template>
+					<template v-else>
+						<v-list-item-content>
+							<div class="render-template-wrapper">
+								<template v-for="field in getFieldsFromTemplate(templateWithDefaults)" :key="field">
+									<div v-if="field.includes('html') && item[field]" 
+										class="field" 
+										v-html="item[field]"
+									/>
+									<template v-else>
+										<render-template
+											v-if="relationInfo && item"
+											:collection="relationInfo.junctionCollection.collection"
+											:item="item"
+											:template="`{{${field.includes('.') ? field : relationInfo.junctionField.field + '.' + field}}}`"
+										 />
+									</template>
+								</template>
+							</div>
+						</v-list-item-content>
+
+						<v-list-item-action>
+							<v-icon 
+								class="deselect" 
+								:name="getItemIcon(item)" 
+								:style="{ color: isItemDeleted(item) ? 'var(--danger)' : undefined }"
+								@click.stop="deleteItem(item)" 
+								v-tooltip="isItemDeleted(item) ? t('Undo Removed Item') : t('Remove Item')" 
+							/>
+						</v-list-item-action>
+					</template>
 				</v-list-item>
 			</template>
 		</transition-group>
 
-
-
-		<v-drawer v-model="editDrawer" :title="t('select_item')" @cancel="editDrawer = false">
-			<template #actions>
-				<v-button v-tooltip.bottom="t('save')" icon rounded @click="saveEdit">
-					<v-icon name="check" :large="true" />
-				</v-button>
-			</template>
-			<div class="content">
-				<v-form v-model="editItem" :collection="relationInfo.relatedCollection.collection" :fields="editFields"
-					:initial-values="editItem" />
-			</div>
-		</v-drawer>
+		<drawer-item
+			v-model:active="editDrawer"
+			:collection="relationInfo.relatedCollection.collection"
+			:primary-key="editItem?.junction_id || '+'"
+			:junction-field="relationInfo.junctionField.field"
+			:circular-field="relationInfo.reverseJunctionField.field"
+			:junction-field-location="'bottom'"
+			@input="saveEdit"
+		/>
 
 		<drawer-collection
 			v-if="!disabled"
@@ -177,33 +181,12 @@ import { Filter } from '@directus/types';
 import { useApi, useStores } from '@directus/composables';
 import { getEndpoint, getFieldsFromTemplate } from '@directus/utils';
 import { useRelationM2M } from './use-relations';
+import { useStagedChanges } from './use-staged-changes';
+import { useFieldsStore } from '@directus/stores';
 
 type RelationFK = string | number | BigInt;
 type RelationItem = RelationFK | Record<string, any>;
 
-interface StagedChanges {
-	create: Record<string, any>[];
-	update: Record<string, any>[];
-	delete: string[];
-}
-
-const menuRef = ref(null);
-const inputRef = ref<HTMLInputElement | null>(null);
-const inputWidth = ref(0);
-const localInput = ref<string>('');
-const menuActive = ref<boolean>(false);
-const suggestedItems = ref<Record<string, any>[]>([]);
-const suggestedItemsSelected = ref<number | null>(null);
-const displayItems = ref<any[]>([]);
-const editDrawer = ref(false);
-const editItem = ref(null);
-const editFields = ref({});
-const currentIds = ref<(string | number)[]>([]);
-const stagedChanges = ref<StagedChanges>({
-	create: [],
-	update: [],
-	delete: []
-});
 const props = withDefaults(
 	defineProps<{
 		value?: RelationItem[];
@@ -235,14 +218,50 @@ const props = withDefaults(
 );
 
 const emit = defineEmits(['input']);
-
 const { t } = useI18n();
 const { value, collection, field } = toRefs(props);
 const { relationInfo } = useRelationM2M(collection, field, useStores());
+const { useFieldsStore } = useStores();
+const fieldsStore = useFieldsStore();
+
+const {
+	stagedChanges,
+	editDrawer,
+	editItem,
+	stageUpdate,
+	stageCreate,
+	stageNewItem,
+	stageExistingItem,
+	stageDrawerSelection,
+	findExistingItem,
+	isItemDeleted
+} = useStagedChanges(relationInfo);
+
 const { usePermissionsStore, useUserStore } = useStores();
 const { currentUser } = useUserStore();
 const { hasPermission } = usePermissionsStore();
+const api = useApi();
 
+// Refs
+const menuRef = ref(null);
+const inputRef = ref<HTMLInputElement | null>(null);
+const inputWidth = ref(0);
+const localInput = ref<string>('');
+const menuActive = ref<boolean>(false);
+const suggestedItems = ref<Record<string, any>[]>([]);
+const suggestedItemsSelected = ref<number | null>(null);
+const displayItems = ref<any[]>([]);
+const editFields = ref({});
+const currentIds = ref<(string | number)[]>([]);
+const isSearching = ref(false);
+const selectModalActive = ref(false);
+const wrapperRef = ref<HTMLElement | null>(null);
+const menuStyle = ref({
+	width: '0px'
+});
+const resizeObserver = ref<ResizeObserver | null>(null);
+
+// Computed
 const createAllowed = computed(() => {
 	if (currentUser?.role.admin_access === true) return true;
 	if (!relationInfo.value || !props.allowCustom) return false;
@@ -258,67 +277,6 @@ const selectAllowed = computed(() => {
 	return hasPermission(relationInfo.value.junctionCollection.collection, 'create');
 });
 
-const api = useApi();
-const templateWithDefaults = computed(() => {
-	if (!relationInfo?.value?.junctionField?.field) return null;
-
-	// If no template is provided, use the referencing field
-	if (!props.template) {
-		return `{{${relationInfo.value.junctionField.field}.${props.referencingField}}}`;
-	}
-
-	// If the template doesn't include the junction field prefix, add it
-	if (!props.template.includes(relationInfo.value.junctionField.field + '.')) {
-		return props.template
-			.replace(/\{\{/g, '{{' + relationInfo.value.junctionField.field + '.')
-			.replace(new RegExp(`${relationInfo.value.junctionField.field}\\.${relationInfo.value.junctionField.field}\\.`, 'g'), 
-				`${relationInfo.value.junctionField.field}.`);
-	}
-
-	return props.template;
-});
-
-const displayFields = computed(() => {
-	if (!relationInfo?.value?.junctionField?.field) return [];
-
-	const fields = getFieldsFromTemplate(props.template || '');
-	
-	return fields.map(field => {
-		if (!relationInfo.value?.junctionField?.field) return field;
-		
-		if (field.startsWith(relationInfo.value.junctionField.field)) {
-			return field;
-		}
-		return `${relationInfo.value.junctionField.field}.${field}`;
-	});
-});
-
-const fetchFields = computed(() => {
-	if (!relationInfo?.value) return [];
-	
-	const fields = new Set<string>();
-	
-	// Always include primary keys
-	fields.add(relationInfo.value.relatedPrimaryKeyField.field);
-	fields.add(`${relationInfo.value.junctionField.field}.${relationInfo.value.relatedPrimaryKeyField.field}`);
-	
-	// Add template fields
-	if (props.template) {
-		const templateFields = getFieldsFromTemplate(props.template);
-		templateFields.forEach(field => {
-			// If the field is already a fully qualified path, add it as is
-			if (field.includes('.')) {
-				fields.add(field);
-			} else {
-				// Otherwise, prefix it with the junction field
-				fields.add(`${relationInfo.value.junctionField.field}.${field}`);
-			}
-		});
-	}
-	
-	return Array.from(fields);
-});
-
 const showAddCustom = computed(
 	() =>
 		createAllowed.value &&
@@ -329,260 +287,174 @@ const showAddCustom = computed(
 
 const isMulti = computed(() => props.allowMultiple && fromSeparatedTag(localInput.value));
 
-watch(
-	localInput,
-	debounce((newValue: string) => {
-		menuActive.value = !!newValue;
-		refreshSuggestions(newValue);
-	}, 300)
-);
+// Add this function to fetch multiple items at once
+async function fetchStagedItems(ids: (string | number)[]) {
+	if (!relationInfo.value) return null;
 
-function emitter(newValue: RelationItem[] | null) {
-	emit('input', newValue);
-}
-
-// Save the edited item
-async function saveEdit() {
 	try {
-		if (!relationInfo.value) return;
-		
-		const junctionId = editItem.value?.junction_id;
-		const junctionField = relationInfo.value.junctionField.field;
-		
-		const newStagedChanges = {
-			create: [...stagedChanges.value.create],
-			update: [...stagedChanges.value.update],
-			delete: [...stagedChanges.value.delete]
-		};
-
-		if (!junctionId) {
-			// For newly created items - keep existing logic unchanged
-			const displayItemIndex = displayItems.value.findIndex(
-				item => !item[relationInfo.value.junctionPrimaryKeyField.field] && 
-					   item[junctionField].name === stagedChanges.value.create[stagedChanges.value.create.length - 1][junctionField].name
-			);
-
-			if (displayItemIndex !== -1) {
-				newStagedChanges.create[newStagedChanges.create.length - 1] = {
-					[junctionField]: {
-						...editItem.value
-					}
-				};
-
-				displayItems.value[displayItemIndex] = {
-					[junctionField]: {
-						...editItem.value
-					}
-				};
-			}
-		} else {
-			// For existing items only - new logic
-			const updateIndex = newStagedChanges.update.findIndex(
-				update => update.id === junctionId
-			);
-			if (updateIndex !== -1) {
-				newStagedChanges.update.splice(updateIndex, 1);
-			}
-
-			newStagedChanges.update.push({
-				id: junctionId,
-				[junctionField]: editItem.value
-			});
-		}
-		
-		stagedChanges.value = newStagedChanges;
-		emit('input', newStagedChanges);
-		editDrawer.value = false;
-	} catch (error) {
-		console.error('Error saving item:', JSON.stringify(error));
-	}
-}
-
-async function openEditDrawer(
-	item: RelationItem,
-	field: string,
-	props: {
-		referencingField: string;
-		[key: string]: any;
-	}
-) {
-	try {
-		if (!relationInfo.value?.relatedCollection?.collection) return;
-
-		const junctionId = item[relationInfo.value.junctionPrimaryKeyField.field];
-		const junctionField = relationInfo.value.junctionField.field;
-		
-		// Check if this is a staged created item
-		const isCreatedItem = !junctionId;
-		if (isCreatedItem) {
-			// For newly created items, find the matching item in stagedChanges.create
-			const createdItemIndex = stagedChanges.value.create.findIndex(
-				createItem => createItem[junctionField].name === item[junctionField].name
-			);
-
-			if (createdItemIndex !== -1) {
-				editItem.value = {
-					...stagedChanges.value.create[createdItemIndex][junctionField],
-					junction_id: null
-				};
-				editDrawer.value = true;
-				
-				const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
-				editFields.value = schemaResponse.data.data;
-				return;
-			}
-		}
-
-		// For existing items, first check staged updates
-		const stagedUpdate = stagedChanges.value.update.find(update => update.id === junctionId);
-		if (stagedUpdate) {
-			editItem.value = {
-				...item[junctionField],
-				...stagedUpdate[junctionField],
-				junction_id: junctionId
-			};
-			editDrawer.value = true;
-			
-			const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
-			editFields.value = schemaResponse.data.data;
-			return;
-		}
-
-		// If no staged changes, fetch from API
-		const relatedItemId = item[field]?.id;
-		if (relatedItemId) {
-			const response = await api.get(
-				`/items/${relationInfo.value.relatedCollection.collection}/${relatedItemId}`,
-				{
-					params: {
-						fields: '*'
+		const response = await api.get(
+			getEndpoint(relationInfo.value.relatedCollection.collection),
+			{
+				params: {
+					fields: [
+						relationInfo.value.relatedPrimaryKeyField.field,
+						props.referencingField,
+						...getFieldsFromTemplate(props.template || '')
+					],
+					filter: {
+						[relationInfo.value.relatedPrimaryKeyField.field]: {
+							_in: ids
+						}
 					}
 				}
-			);
-
-			editItem.value = {
-				...response.data.data,
-				junction_id: junctionId
-			};
-		} else {
-			editItem.value = {
-				...item[field],
-				junction_id: junctionId
-			};
-		}
-		
-		editDrawer.value = true;
-
-		const schemaResponse = await api.get(`/fields/${relationInfo.value.relatedCollection.collection}`);
-		editFields.value = schemaResponse.data.data;
-	} catch (error) {
-		console.error('Error fetching item data:', JSON.stringify(error));
-	}
-}
-
-function deleteItem(item: any) {
-	if (!relationInfo.value) return;
-	
-	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
-	const junctionField = relationInfo.value.junctionField.field;
-	const itemId = item[junctionPkField];
-
-	// Create new copies of arrays to maintain reactivity
-	const newStagedChanges = {
-		create: [...stagedChanges.value.create],
-		update: [...stagedChanges.value.update],
-		delete: [...stagedChanges.value.delete]
-	};
-
-	if (!itemId) {
-		// For newly created items, remove from create array
-		const createIndex = newStagedChanges.create.findIndex(
-			createItem => createItem[junctionField].id === item[junctionField].id
+			}
 		);
-		
-		if (createIndex !== -1) {
-			newStagedChanges.create.splice(createIndex, 1);
-			stagedChanges.value = newStagedChanges;
-			emit('input', newStagedChanges);
-		}
-	} else {
-		// For existing items, toggle deletion
-		const deleteIndex = newStagedChanges.delete.indexOf(itemId);
-		
-		if (deleteIndex === -1) {
-			newStagedChanges.delete.push(itemId);
-		} else {
-			newStagedChanges.delete.splice(deleteIndex, 1);
-		}
-
-		stagedChanges.value = newStagedChanges;
-		emit('input', newStagedChanges);
+		// Convert array to map for easier lookup
+		const itemsMap: Record<string | number, any> = {};
+		response.data.data.forEach((item: any) => {
+			itemsMap[item[relationInfo.value.relatedPrimaryKeyField.field]] = item;
+		});
+		return itemsMap;
+	} catch (error) {
+		console.error('Error fetching item data:', error);
+		return null;
 	}
 }
 
-function stageItemObject(item: Record<string, RelationItem>) {
-	if (!relationInfo.value) return;
-	
+// Add a ref to store fetched item data
+interface StagedItemData {
+	data: Record<string, any> | null;
+	loading: boolean;
+}
+
+const stagedItemsData = ref<Record<string | number, StagedItemData>>({});
+
+// Add a watch to fetch data for newly staged items
+watch(
+	() => stagedChanges.value.create,
+	async (newStagedItems) => {
+		const idsToFetch: (string | number)[] = [];
+		const junctionField = relationInfo.value?.junctionField.field;
+		if (!junctionField) return;
+
+		// Collect all IDs that need fetching
+		for (const item of newStagedItems) {
+			const itemId = item[junctionField]?.id;
+			if (itemId && !stagedItemsData.value[itemId]?.data) {
+				idsToFetch.push(itemId);
+				stagedItemsData.value[itemId] = {
+					data: null,
+					loading: true
+				};
+			}
+		}
+
+		if (idsToFetch.length > 0) {
+			const itemsData = await fetchStagedItems(idsToFetch);
+			if (itemsData) {
+				// Update all fetched items at once
+				idsToFetch.forEach(id => {
+					stagedItemsData.value[id] = {
+						data: itemsData[id],
+						loading: false
+					};
+				});
+			}
+		}
+	},
+	{ deep: true }
+);
+
+const consolidatedItems = computed(() => {
+	if (!relationInfo.value) return [];
+
 	const junctionField = relationInfo.value.junctionField.field;
-	
-	const newStagedChanges = {
-		create: [...stagedChanges.value.create],
-		update: [...stagedChanges.value.update],
-		delete: [...stagedChanges.value.delete]
-	};
-	
-	const newItem = {
-		[junctionField]: {
-			...item,
-			html: item.html || '',
-			status: item.status || 'draft',
-			severity: item.severity || 'low'
+	const items: Record<string, any>[] = [];
+
+	// Add existing items (excluding deleted ones)
+	items.push(
+		...displayItems.value.filter(item => !isItemDeleted(item))
+	);
+
+	// Add staged items
+	stagedChanges.value.create.forEach(item => {
+		const junctionData = item[junctionField];
+		if (!junctionData) return;
+
+		const stagedData = junctionData.id ? stagedItemsData.value[junctionData.id] : null;
+
+		const structuredItem = {
+			[relationInfo.value.junctionPrimaryKeyField.field]: null,
+			[junctionField]: {
+				...(junctionData.id ? stagedData?.data || junctionData : junctionData),
+				$staged: true,
+				$loading: stagedData?.loading || false
+			}
+		};
+
+		// If this is a new item (no ID), mark it as new
+		if (!junctionData.id) {
+			structuredItem[junctionField].$new = true;
 		}
-	};
-	
-	newStagedChanges.create.push(newItem);
-	
-	// Add item to displayItems immediately
-	displayItems.value = [...displayItems.value, newItem];
-	
-	emit('input', newStagedChanges);
-	localInput.value = '';
-}
 
-async function stageLocalInput() {
-	if (!props.referencingField) return;
+		items.push(structuredItem);
+	});
 
-	const value = localInput.value?.trim();
-	for (const valueTag of fromSeparatedTag(value)) {
-		await stageValue(valueTag.trim());
+	return items;
+});
+
+const templateWithDefaults = computed(() => {
+	if (!relationInfo.value) return null;
+
+	if (props.template) {
+		// If template fields don't include junction field prefix, add it
+		return props.template.replace(
+			/\{\{([^}]+)\}\}/g,
+			(match, field) => {
+				if (field.includes('.')) return match;
+				return `{{${relationInfo.value.junctionField.field}.${field}}}`;
+			}
+		);
 	}
 
-	localInput.value = '';
-}
+	// Default template using the referencing field
+	return `{{${relationInfo.value.junctionField.field}.${props.referencingField}}}`;
+});
 
-function fromSeparatedTag(input: string): string[] {
-	if (!props.allowMultiple) return [input];
+const requiredFields = computed(() => {
+	if (!relationInfo.value) return [];
 
-	return input
-		.split(/[;,]/)
-		.map((x) => x.trim())
-		.filter((x) => !!x);
-}
+	const junctionField = relationInfo.value.junctionField.field;
+	const fields = new Set<string>();
 
-async function stageValue(value: string) {
-	if (!value || itemValueStaged(value)) return;
+	// Always include primary keys for proper item handling
+	fields.add(relationInfo.value.junctionPrimaryKeyField.field);
+	fields.add(`${junctionField}.${relationInfo.value.relatedPrimaryKeyField.field}`);
 
-	try {
-		const item = await findByKeyword(value);
-		if (item) {
-			stageItemObject(item);
-		} else if (createAllowed.value && props.referencingField) {
-			// Create new item
-			stageItemObject({ [props.referencingField]: value });
-		}
-	} catch (err: any) {
-		console.error('Error staging value:', JSON.stringify(err));
+	// Add template fields
+	if (props.template) {
+		const templateFields = getFieldsFromTemplate(props.template);
+		templateFields.forEach(field => {
+			// If field already includes junction prefix, add as is
+			if (field.startsWith(junctionField)) {
+				fields.add(field);
+			} else {
+				// Otherwise, prefix with junction field
+				fields.add(`${junctionField}.${field}`);
+			}
+		});
+	} else {
+		// If no template, at least get the referencing field
+		fields.add(`${junctionField}.${props.referencingField}`);
 	}
+
+	return Array.from(fields);
+});
+
+// Helper functions
+function itemValueAvailable(value: string): boolean {
+	if (!value || !props.referencingField) return false;
+	return !!suggestedItems.value.find((item) => item[props.referencingField] === value);
 }
 
 function itemValueStaged(value: string): boolean {
@@ -596,10 +468,167 @@ function itemValueStaged(value: string): boolean {
 	});
 }
 
-function itemValueAvailable(value: string): boolean {
-	if (!value || !props.referencingField) return false;
-	return !!suggestedItems.value.find((item) => item[props.referencingField] === value);
+function fromSeparatedTag(input: string): string[] {
+	if (!props.allowMultiple) return [input];
+
+	return input
+		.split(/[;,]/)
+		.map((x) => x.trim())
+		.filter((x) => !!x);
 }
+
+// Functions
+function saveEdit() {
+	if (!relationInfo.value || !editItem.value) return;
+
+	const newChanges = editItem.value.junction_id 
+		? stageUpdate(editItem.value)
+		: stageCreate(editItem.value);
+
+	if (newChanges) {
+		emit('input', newChanges);
+		editDrawer.value = false;
+	}
+}
+
+async function openEditDrawer(item: RelationItem) {
+	if (!relationInfo.value?.relatedCollection?.collection) return;
+
+	const junctionId = item[relationInfo.value.junctionPrimaryKeyField.field];
+	const junctionField = relationInfo.value.junctionField.field;
+
+	if (!junctionId) {
+		editItem.value = {
+			...item[junctionField],
+			junction_id: null
+		};
+		editDrawer.value = true;
+		return;
+	}
+
+	try {
+		const response = await api.get(
+			`/items/${relationInfo.value.relatedCollection.collection}/${item[junctionField].id}`,
+			{
+				params: {
+					fields: '*'
+				}
+			}
+		);
+
+		editItem.value = {
+			...response.data.data,
+			junction_id: junctionId
+		};
+		editDrawer.value = true;
+	} catch (error) {
+		console.error('Error fetching item data:', error);
+	}
+}
+
+async function handleItemSelection(item: Record<string, any>) {
+	if (!relationInfo.value) return;
+	const newChanges = await stageExistingItem(item, props.primaryKey);
+	if (newChanges) {
+		emit('input', newChanges);
+		localInput.value = '';
+		menuActive.value = false;
+	}
+}
+
+function select(items: Record<string, any>[]) {
+	if (!items || items.length === 0) return;
+
+	items.forEach(async item => {
+		const newChanges = await stageDrawerSelection(item, props.primaryKey);
+		if (newChanges) {
+			emit('input', newChanges);
+		}
+	});
+
+	selectModalActive.value = false;
+}
+
+async function stageLocalInput() {
+	if (!relationInfo.value || !props.referencingField) return;
+
+	const value = localInput.value?.trim();
+	if (!value) return;
+
+	// Handle multiple values if allowed
+	for (const valueTag of fromSeparatedTag(value)) {
+		await stageValue(valueTag.trim());
+	}
+
+	localInput.value = '';
+	menuActive.value = false;
+}
+
+async function stageValue(value: string) {
+	if (!value || itemValueStaged(value)) return;
+
+	try {
+		const existingItem = await findExistingItem(value, props.referencingField, props.template);
+		if (existingItem) {
+			handleItemSelection(existingItem);
+		} else if (createAllowed.value && props.referencingField) {
+			const newChanges = await stageNewItem(value, props.primaryKey, props.referencingField);
+			if (newChanges) {
+				emit('input', newChanges);
+			}
+		}
+	} catch (err) {
+		console.error('Error staging value:', err);
+	}
+}
+
+// Update onInputKeyDown to handle Enter key
+function onInputKeyDown(event: KeyboardEvent) {
+	if (event.key === 'Enter') {
+		event.preventDefault();
+		if (suggestedItemsSelected.value !== null && suggestedItems.value[suggestedItemsSelected.value]) {
+			handleItemSelection(suggestedItems.value[suggestedItemsSelected.value]);
+		} else if (createAllowed.value) {
+			stageLocalInput();
+		}
+		return;
+	}
+	
+	// ... rest of keyboard handling
+}
+
+// Lifecycle hooks
+onMounted(() => {
+	if (wrapperRef.value) {
+		resizeObserver.value = new ResizeObserver((entries) => {
+			for (const entry of entries) {
+				if (entry.target === wrapperRef.value) {
+					const width = entry.contentRect.width;
+					const scrollbarWidth = entry.target.offsetWidth - width;
+					menuStyle.value = {
+						width: `${width - scrollbarWidth}px`
+					};
+				}
+			}
+		});
+		resizeObserver.value.observe(wrapperRef.value);
+	}
+});
+
+onUnmounted(() => {
+	if (resizeObserver.value) {
+		resizeObserver.value.disconnect();
+	}
+});
+
+// Add this watch effect after other watch statements
+watch(
+	localInput,
+	debounce((newValue: string) => {
+		menuActive.value = !!newValue;
+		refreshSuggestions(newValue);
+	}, 300)
+);
 
 async function refreshSuggestions(keyword: string) {
 	if (!relationInfo.value || !props.referencingField) {
@@ -613,13 +642,14 @@ async function refreshSuggestions(keyword: string) {
 		return;
 	}
 
-	isSearching.value = true;  // Set loading state to true
+	isSearching.value = true;
 
+	// Get current selected IDs to exclude from search
 	const currentIds = displayItems.value
-		.map((item: RelationItem): RelationFK =>
+		.map((item: RelationItem) => 
 			item[relationInfo.value.junctionField.field]?.[relationInfo.value.relatedPrimaryKeyField.field]
 		)
-		.filter((id: RelationFK) => id === 0 || !!id);
+		.filter((id) => id === 0 || !!id);
 
 	const filters: Filter[] = [];
 
@@ -628,7 +658,7 @@ async function refreshSuggestions(keyword: string) {
 		filters.push(props.filter);
 	}
 
-	// Add the current IDs filter
+	// Add the current IDs filter to exclude already selected items
 	if (currentIds.length > 0) {
 		filters.push({
 			[relationInfo.value.relatedPrimaryKeyField.field]: {
@@ -637,20 +667,25 @@ async function refreshSuggestions(keyword: string) {
 		});
 	}
 
-	// Combine and deduplicate search fields
-	const allSearchFields = Array.from(new Set([props.referencingField, ...(props.searchFields || [])]));
-
-	// Create _or filter for all fields
+	// Create search filter for all searchable fields
 	const searchFilter = {
-		_or: allSearchFields.map(field => ({
-			[field]: {
-				_icontains: keyword,
-			}
-		}))
+		_or: [
+			// Always include the referencing field
+			{
+				[props.referencingField]: {
+					_icontains: keyword,
+				},
+			},
+			// Add additional search fields if provided
+			...(props.searchFields?.map(field => ({
+				[field]: {
+					_icontains: keyword,
+				},
+			})) || []),
+		],
 	};
-	
+
 	filters.push(searchFilter);
-	
 
 	try {
 		const response = await api.get(getEndpoint(relationInfo.value.relatedCollection.collection), {
@@ -659,11 +694,10 @@ async function refreshSuggestions(keyword: string) {
 				fields: [
 					relationInfo.value.relatedPrimaryKeyField.field,
 					props.referencingField,
-					...getFieldsFromTemplate(props.template || '')
-						.map(field => field.replace(relationInfo.value.junctionField.field + '.', '')),
+					...getFieldsFromTemplate(props.template || ''),
+					...(props.searchFields || []),
 				],
 				filter: filters.length > 1 ? { _and: filters } : filters[0],
-				...getSortingQuery(),
 			},
 		});
 
@@ -672,466 +706,96 @@ async function refreshSuggestions(keyword: string) {
 		console.error('Error fetching suggestions:', error);
 		suggestedItems.value = [];
 	} finally {
-		isSearching.value = false;  // Reset loading state
+		isSearching.value = false;
 	}
 }
 
-async function findByKeyword(keyword: string): Promise<Record<string, any> | null> {
-	if (!relationInfo.value || !props.referencingField) return null;
-
-	const response = await api.get(getEndpoint(relationInfo.value.relatedCollection.collection), {
-		params: {
-			limit: 1,
-			fields: [
-				relationInfo.value.relatedPrimaryKeyField.field,
-				props.referencingField,
-				...(fetchFields.value || []),
-			],
-			filter: {
-				[props.referencingField]: {
-					_eq: keyword,
-				},
-			},
-		},
-	});
-
-	return response?.data?.data?.[0] || null;
-}
-
-const { loading } = usePreviews(value);
-
-watch(displayItems, (newItems) => {
-}, { deep: true });
-
-function getSortingQuery(path?: string): Object {
-	if (!relationInfo.value) return {};
-	
-	const fieldName = props.sortField 
-		? props.sortField 
-		: relationInfo.value.relatedPrimaryKeyField.field;
-		
-	const field = path ? `${path}.${fieldName}` : fieldName;
-	
-	return {
-		sort: props.sortDirection === 'desc' ? `-${field}` : field,
-	};
-}
-
-/**
- * Keyboard shortcuts and keybindings
- * @param {KeyboardEvent} event
- */
-async function onInputKeyDown(event: KeyboardEvent) {
-	if (event.key === 'Escape' && !menuActive.value && localInput.value) {
-		localInput.value = '';
-		//inputRef.value?.focus(); // Return focus to the input
-		return;
-	}
-
-	if (event.key === 'Escape') {
-		event.preventDefault();
-		menuActive.value = false;
-		return;
-	}
-
-	if (event.key === 'Enter') {
-		event.preventDefault();
-		if (suggestedItemsSelected.value !== null && suggestedItems.value[suggestedItemsSelected.value]) {
-			stageItemObject(suggestedItems.value[suggestedItemsSelected.value]);
-		} else if (createAllowed.value) {
-			stageLocalInput();
-		}
-		localInput.value = ''; // Clear input when Enter is clicked
-		return;
-	}
-
-	if (event.key === 'ArrowUp' || (event.key === 'Tab' && event.shiftKey)) {
-		event.preventDefault();
-		if (suggestedItems.value.length < 1) return;
-		// Select previous from the list, if on top, then go last.
-		suggestedItemsSelected.value =
-			suggestedItemsSelected.value === null ||
-				suggestedItemsSelected.value < 1 ||
-				!suggestedItems.value[suggestedItemsSelected.value]
-				? suggestedItems.value.length - 1
-				: suggestedItemsSelected.value - 1;
-		return;
-	}
-
-	if (event.key === 'Tab') {
-		if (!menuActive.value) {
-			localInput.value = '';
-			return;
-		}
-
-		if (!localInput.value && suggestedItems.value.length < 1) return;
-	}
-
-	if (event.key === 'ArrowDown' || event.key === 'Tab') {
-		event.preventDefault();
-		if (suggestedItems.value.length < 1) return;
-		// Select next from the list, if bottom, then go first.
-		suggestedItemsSelected.value =
-			suggestedItemsSelected.value === null ||
-				suggestedItemsSelected.value >= suggestedItems.value.length - 1 ||
-				!suggestedItems.value[suggestedItemsSelected.value]
-				? 0
-				: suggestedItemsSelected.value + 1;
-		return;
-	}
-}
-
-function usePreviews(value: Ref<RelationItem[] | StagedChanges>) {
-	const loading = ref<boolean>(false);
-
-	if (!relationInfo.value) return { loading };
-
-	watch(
-		value,
-		async (newValue) => {
-			
-			if (!newValue) return;
-			
-			if (Array.isArray(newValue)) {
-				currentIds.value = newValue;
-				await loadItems(newValue);
-			} 
-			else if ('create' in newValue) {
-				stagedChanges.value = newValue;
-				await consolidateDisplay();
-			}
-		},
-		{ immediate: true }
-	);
-
-	return { loading };
-}
-
-watch(value, (newValue) => {
-});
-
-watch(displayItems, (newValue) => {
-});
-
-watch(relationInfo, (newValue) => {
-});
-
-// Function to load items by IDs
-async function loadItems(ids: (string | number)[]) {
-	if (!relationInfo.value || !ids.length) {
+async function loadExistingItems() {
+	if (!relationInfo.value) return;
+	// Make sure primaryKey is a valid number or string, not NaN, undefined, or null
+	if (!props.primaryKey || props.primaryKey === '+' || (typeof props.primaryKey === 'number' && isNaN(props.primaryKey))) {
 		displayItems.value = [];
 		return;
 	}
-	
-	loading.value = true;
+
 	try {
 		const response = await api.get(getEndpoint(relationInfo.value.junctionCollection.collection), {
 			params: {
-				fields: fetchFields.value,
+				fields: [
+					...requiredFields.value
+				],
 				filter: {
-					id: {
-						_in: ids.filter(id => typeof id === 'number').join(','),
-					},
-				},
-				deep: {
-					[relationInfo.value.junctionField.field]: {
-						_filter: {}
-					}
+					[relationInfo.value.reverseJunctionField.field]: props.primaryKey
 				}
-			},
-		});
-
-		if (response?.data?.data) {
-			displayItems.value = response.data.data;
-		}
-	} catch (error) {
-		console.error('Error loading items:', JSON.stringify(error));
-	} finally {
-		loading.value = false;
-	}
-}
-
-// Function to consolidate current items with staged changes
-async function consolidateDisplay() {
-	if (!relationInfo.value) return;
-	
-	const junctionField = relationInfo.value.junctionField.field;
-	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
-
-	try {
-		// Start with existing items from the database
-		let workingItems = displayItems.value.filter(item => item[junctionPkField]);
-
-		// Apply updates to existing items
-		stagedChanges.value.update.forEach(update => {
-			const index = workingItems.findIndex(
-				item => item[junctionPkField] === update.id
-			);
-			if (index !== -1) {
-				workingItems[index] = {
-					...workingItems[index],
-					[junctionField]: {
-						...workingItems[index][junctionField],
-						...update[junctionField]
-					}
-				};
 			}
 		});
 
-		// Add staged created items
-		workingItems = [
-			...workingItems,
-			...stagedChanges.value.create
-		];
-
-		// Update displayItems with the consolidated list
-		displayItems.value = workingItems;
-		
+		displayItems.value = response.data.data || [];
 	} catch (error) {
-		console.error('Error in consolidateDisplay:', error);
+		console.error('Error loading items:', error);
+		displayItems.value = [];
 	}
 }
 
-// Add a watch on the primaryKey to detect when the parent item is saved
+// Update the watch to also handle '+' primaryKey
 watch(
 	() => props.primaryKey,
-	async (newKey, oldKey) => {
-		if (newKey && newKey !== oldKey) {
-			// Reset staged changes since the parent item was saved
-			stagedChanges.value = {
-				create: [],
-				update: [],
-				delete: []
-			};
-			
-			// Reload the actual items from the database
-			if (Array.isArray(value.value)) {
-				await loadItems(value.value);
-			}
-		}
-	}
-);
-
-// Modify the existing watch on value to handle the reset case
-watch(
-	value,
-	async (newValue) => {
-		if (!newValue) {
+	(newKey) => {
+		if (newKey && newKey !== '+' && !(typeof newKey === 'number' && isNaN(newKey))) {
+			loadExistingItems();
+		} else {
 			displayItems.value = [];
-			currentIds.value = [];
-			stagedChanges.value = {
-				create: [],
-				update: [],
-				delete: []
-			};
-			return;
-		}
-		
-		if (Array.isArray(newValue)) {
-			currentIds.value = newValue;
-			await loadItems(newValue);
-		} else if ('create' in newValue) {
-			stagedChanges.value = newValue;
-			await consolidateDisplay();
 		}
 	},
-	{ deep: true }
+	{ immediate: true }
 );
 
-// First, add a computed property to check if an item is staged for deletion
-const isItemDeleted = (item: any) => {
-	if (!relationInfo.value) return false;
-	return stagedChanges.value.delete.includes(item[relationInfo.value.junctionPrimaryKeyField.field]);
-};
-
-function getItemIcon(item: any): string {
+function getItemIcon(item: Record<string, any>): string {
 	if (!relationInfo.value) return 'close';
-	
+
 	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
-	
-	// For newly created items (no junction ID), show delete icon
+
+	// For newly created items (no junction ID)
 	if (!item[junctionPkField]) {
 		return 'delete';
 	}
-	
+
 	// For existing items, show restore if marked for deletion, otherwise close
 	return isItemDeleted(item) ? 'settings_backup_restore' : 'close';
 }
 
-const updateWidth = () => {
-	if (inputRef.value) {
-		inputWidth.value = inputRef.value.offsetWidth;
-	}
-};
+function deleteItem(item: Record<string, any>) {
+	if (!relationInfo.value) return;
 
-// Single onMounted handler
-onMounted(() => {
-	// Create resize observer
-	resizeObserver.value = new ResizeObserver((entries) => {
-		for (const entry of entries) {
-			if (entry.target === wrapperRef.value) {
-				const width = entry.contentRect.width;
-				// Subtract scrollbar width if needed
-				const scrollbarWidth = entry.target.offsetWidth - width;
-				menuStyle.value = {
-					width: `${width - scrollbarWidth}px`
-				};
-			}
-		}
-	});
+	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
+	const itemId = item[junctionPkField];
 
-	// Start observing
-	if (wrapperRef.value) {
-		resizeObserver.value.observe(wrapperRef.value);
-	}
-
-	updateWidth();
-	window.addEventListener('resize', updateWidth);
-});
-
-// Single onUnmounted handler
-onUnmounted(() => {
-	if (resizeObserver.value) {
-		resizeObserver.value.disconnect();
-	}
-	window.removeEventListener('resize', updateWidth);
-});
-
-// Watch for menu activation to ensure width is correct when menu opens
-watch(menuActive, async (newValue) => {
-	if (newValue) {
-		await nextTick();
-		
-		// Get input width from wrapper
-		const wrapperWidth = wrapperRef.value?.offsetWidth;
-		
-		if (wrapperWidth) {
-			menuStyle.value = {
-				width: `${wrapperWidth}px`
-			};
-		}
-	}
-});
-
-const wrapperRef = ref<HTMLElement | null>(null);
-const menuStyle = ref({
-	width: '0px'
-});
-
-// Add ResizeObserver setup
-const resizeObserver = ref<ResizeObserver | null>(null);
-
-// Add this with other refs near the top of the file
-const isSearching = ref(false);
-
-// Add with other refs
-const selectModalActive = ref(false);
-
-// Add this computed property
-const customFilter = computed(() => {
-	if (!relationInfo.value) return {};
-
-	const filter: Filter = {
-		_and: []
+	const newStagedChanges = {
+		...stagedChanges.value,
+		delete: [...stagedChanges.value.delete]
 	};
 
-	// Add the user's filter if it exists
-	if (props.filter) {
-		filter._and.push(props.filter);
+	const deleteIndex = newStagedChanges.delete.indexOf(itemId);
+
+	if (deleteIndex === -1) {
+		newStagedChanges.delete.push(itemId);
+	} else {
+		newStagedChanges.delete.splice(deleteIndex, 1);
 	}
 
-	// Get IDs of currently selected items
-	const selectedIds = displayItems.value
-		.map(item => item[relationInfo.value.junctionField.field]?.[relationInfo.value.relatedPrimaryKeyField.field])
-		.filter(id => id !== undefined);
-
-	// Add filter to exclude selected items
-	if (selectedIds.length > 0) {
-		filter._and.push({
-			[relationInfo.value.relatedPrimaryKeyField.field]: {
-				_nin: selectedIds
-			}
-		});
-	}
-
-	return filter;
-});
+	emit('input', newStagedChanges);
+}
 </script>
 
-<style>
-.v-menu-popper {
-	max-width: min-content !important;
-}
-</style>
-
 <style lang="scss" scoped>
-/* Field and template styles */
-.content {
-	padding: var(--content-padding);
-	padding-top: 0;
-}
-
-.tags {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	justify-content: flex-start;
-	padding: var(--v-list-padding);
-	gap: var(--v-list-item-padding);
-	width: 100%;
-	margin-top: 8px;
-}
-
-.render-template-wrapper {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 8px;
-	width: 100%;
-}
-
-:deep(.render-template-wrapper) {
-	.field p img {
-		max-height: 40px !important;
-		border-radius: 4px;
-		vertical-align: middle;
-		width: auto !important;
-		object-fit: contain;
-		margin: 0px 4px;
-	}
-}
-
-.field {
-	display: inline-flex;
-	max-width: 100%;
-
-	:deep(img) {
-		max-height: 40px;
-		width: auto;
-		vertical-align: middle;
-		border-radius: 4px;
-		margin: 4px;
-	}
-
-	:deep(p) {
-		margin: 0;
-		display: inline;
-	}
-}
-
 .v-list-item {
-	transition: background-color 0.2s ease, color 0.2s ease;
-}
+  &.loading {
+    opacity: 0.7;
+    pointer-events: none;
+  }
 
-.many-to-many {
-	width: 100%;
+  .loading-indicator {
+    margin: 0 auto;
+  }
 }
-
-.actions {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 8px;
-	width: 100%;
-}
-
 </style>
