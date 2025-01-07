@@ -146,6 +146,40 @@ export function useStagedChanges(relationInfo: Ref<RelationM2MTypes | null>) {
     return stagedChanges.value.delete.includes(item[junctionPkField]);
   }
 
+  function deleteItem(item: Record<string, any>) {
+    if (!relationInfo.value) return;
+
+    const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
+    const junctionId = item[junctionPkField];
+    
+    console.log('Deleting item:', {
+      junctionPkField,
+      junctionId,
+      currentDeleteArray: stagedChanges.value.delete
+    });
+    
+    if (!junctionId) return;
+
+    const newStagedChanges = {
+      ...stagedChanges.value
+    };
+
+    // Check if ID is already in delete array
+    if (stagedChanges.value.delete.includes(junctionId)) {
+      console.log('Item already in delete array - removing it');
+      // Remove it if it's there (undo deletion)
+      newStagedChanges.delete = stagedChanges.value.delete.filter(id => id !== junctionId);
+    } else {
+      console.log('Item not in delete array - adding it');
+      // Add it if it's not there (mark for deletion)
+      newStagedChanges.delete = [...stagedChanges.value.delete, junctionId];
+    }
+
+    console.log('New staged changes:', newStagedChanges);
+    stagedChanges.value = newStagedChanges;
+    return newStagedChanges;
+  }
+
   return {
     stagedChanges,
     editDrawer,
@@ -156,6 +190,7 @@ export function useStagedChanges(relationInfo: Ref<RelationM2MTypes | null>) {
     stageExistingItem,
     stageDrawerSelection,
     findExistingItem,
-    isItemDeleted
+    isItemDeleted,
+    deleteItem
   };
 } 

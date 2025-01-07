@@ -143,7 +143,7 @@
 								class="deselect" 
 								:name="getItemIcon(item)" 
 								:style="{ color: isItemDeleted(item) ? 'var(--danger)' : undefined }"
-								@click.stop="deleteItem(item)" 
+								@click.stop="handleDelete(item)" 
 								v-tooltip="isItemDeleted(item) ? t('Undo Removed Item') : t('Remove Item')" 
 							/>
 						</v-list-item-action>
@@ -234,7 +234,8 @@ const {
 	stageExistingItem,
 	stageDrawerSelection,
 	findExistingItem,
-	isItemDeleted
+	isItemDeleted,
+	deleteItem
 } = useStagedChanges(relationInfo);
 
 const { usePermissionsStore, useUserStore } = useStores();
@@ -371,9 +372,12 @@ const consolidatedItems = computed(() => {
 	const junctionField = relationInfo.value.junctionField.field;
 	const items: Record<string, any>[] = [];
 
-	// Add existing items (excluding deleted ones)
+	// Add existing items (including deleted ones)
 	items.push(
-		...displayItems.value.filter(item => !isItemDeleted(item))
+		...displayItems.value.map(item => ({
+			...item,
+			$type: isItemDeleted(item) ? 'deleted' : undefined
+		}))
 	);
 
 	// Add staged items
@@ -389,13 +393,9 @@ const consolidatedItems = computed(() => {
 				...(junctionData.id ? stagedData?.data || junctionData : junctionData),
 				$staged: true,
 				$loading: stagedData?.loading || false
-			}
+			},
+			$type: 'created'
 		};
-
-		// If this is a new item (no ID), mark it as new
-		if (!junctionData.id) {
-			structuredItem[junctionField].$new = true;
-		}
 
 		items.push(structuredItem);
 	});
@@ -764,26 +764,11 @@ function getItemIcon(item: Record<string, any>): string {
 	return isItemDeleted(item) ? 'settings_backup_restore' : 'close';
 }
 
-function deleteItem(item: Record<string, any>) {
-	if (!relationInfo.value) return;
-
-	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
-	const itemId = item[junctionPkField];
-
-	const newStagedChanges = {
-		...stagedChanges.value,
-		delete: [...stagedChanges.value.delete]
-	};
-
-	const deleteIndex = newStagedChanges.delete.indexOf(itemId);
-
-	if (deleteIndex === -1) {
-		newStagedChanges.delete.push(itemId);
-	} else {
-		newStagedChanges.delete.splice(deleteIndex, 1);
+function handleDelete(item: Record<string, any>) {
+	const newStagedChanges = deleteItem(item);
+	if (newStagedChanges) {
+		emit('input', newStagedChanges);
 	}
-
-	emit('input', newStagedChanges);
 }
 
 // Add computed property for selected primary keys
@@ -840,6 +825,17 @@ const customFilter = computed(() => {
 
   .loading-indicator {
     margin: 0 auto;
+  }
+
+  &.deleted {
+    --v-list-item-border-color: var(--danger-25);
+    --v-list-item-border-color-hover: var(--danger-50);
+    --v-list-item-background-color: var(--danger-10);
+    --v-list-item-background-color-hover: var(--danger-25);
+    
+    :deep(.v-icon) {
+      color: var(--danger-75);
+    }
   }
 }
 </style>
