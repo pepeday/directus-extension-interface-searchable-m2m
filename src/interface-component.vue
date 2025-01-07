@@ -785,6 +785,50 @@ function deleteItem(item: Record<string, any>) {
 
 	emit('input', newStagedChanges);
 }
+
+// Add computed property for selected primary keys
+const selectedPrimaryKeys = computed(() => {
+	if (!relationInfo.value) return [];
+
+	const junctionField = relationInfo.value.junctionField.field;
+	const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
+
+	// Get IDs from existing items
+	const existingIds = displayItems.value
+		.filter(item => !isItemDeleted(item))
+		.map(item => item[junctionField]?.[relatedPkField])
+		.filter(id => id !== undefined);
+
+	// Get IDs from staged items
+	const stagedIds = stagedChanges.value.create
+		.map(item => item[junctionField]?.id)
+		.filter(id => id !== undefined);
+
+	return [...existingIds, ...stagedIds];
+});
+
+// Add computed property for custom filter
+const customFilter = computed(() => {
+	const filter: Filter = {
+		_and: [],
+	};
+
+	// Add the custom filter if it exists
+	if (props.filter) {
+		filter._and.push(props.filter);
+	}
+
+	// Add filter to exclude already selected items
+	if (selectedPrimaryKeys.value.length > 0) {
+		filter._and.push({
+			[relationInfo.value.relatedPrimaryKeyField.field]: {
+				_nin: selectedPrimaryKeys.value,
+			},
+		});
+	}
+
+	return filter;
+});
 </script>
 
 <style lang="scss" scoped>
