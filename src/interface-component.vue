@@ -750,6 +750,22 @@ watch(
 	{ immediate: true }
 );
 
+// Watch for when the value prop is reset (indicating a save)
+watch(
+	() => displayItems.value,
+	(newItems) => {
+		// When displayItems changes, it means the items were reloaded after a save
+		if (newItems && newItems.length > 0) {
+			const newStagedChanges = {
+				create: [],
+				update: [],
+				delete: []
+			};
+			stagedChanges.value = newStagedChanges;
+		}
+	}
+);
+
 function getItemIcon(item: Record<string, any>): string {
 	if (!relationInfo.value) return 'close';
 
