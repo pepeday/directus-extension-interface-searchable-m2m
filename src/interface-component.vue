@@ -101,12 +101,12 @@
 			class="tags"
 		>
 			<template v-if="relationInfo">
-				<v-list-item
+				<v-list-item 
 					v-for="item in consolidatedItems" 
 					:key="item[relationInfo.junctionField.field]?.[relationInfo.relatedPrimaryKeyField.field]"
 					v-tooltip="t('Click to edit')" 
 					:disabled="disabled || !selectAllowed" 
-					class="link block clickable"
+					class="link block clickable" 
 					:style="{ 
 						color: isItemDeleted(item) ? 'var(--danger)' : undefined,
 						backgroundColor: isItemDeleted(item) ? 'var(--danger-alt)' : undefined
@@ -119,34 +119,34 @@
 						/>
 					</template>
 					<template v-else>
-						<v-list-item-content>
-							<div class="render-template-wrapper">
-								<template v-for="field in getFieldsFromTemplate(templateWithDefaults)" :key="field">
+					<v-list-item-content>
+						<div class="render-template-wrapper">
+							<template v-for="field in getFieldsFromTemplate(templateWithDefaults)" :key="field">
 									<div v-if="field.includes('html') && item[field]" 
-										class="field" 
+									class="field" 
 										v-html="item[field]"
-									/>
-									<template v-else>
-										<render-template
+								/>
+								<template v-else>
+									<render-template
 											v-if="relationInfo && item"
-											:collection="relationInfo.junctionCollection.collection"
-											:item="item"
+										:collection="relationInfo.junctionCollection.collection"
+										:item="item"
 											:template="`{{${field.includes('.') ? field : relationInfo.junctionField.field + '.' + field}}}`"
-										 />
-									</template>
+										/>
 								</template>
-							</div>
-						</v-list-item-content>
+							</template>
+						</div>
+					</v-list-item-content>
 
-						<v-list-item-action>
-							<v-icon 
-								class="deselect" 
-								:name="getItemIcon(item)" 
-								:style="{ color: isItemDeleted(item) ? 'var(--danger)' : undefined }"
+					<v-list-item-action>
+						<v-icon 
+							class="deselect" 
+							:name="getItemIcon(item)" 
+							:style="{ color: isItemDeleted(item) ? 'var(--danger)' : undefined }"
 								@click.stop="handleDelete(item)" 
-								v-tooltip="isItemDeleted(item) ? t('Undo Removed Item') : t('Remove Item')" 
-							/>
-						</v-list-item-action>
+							v-tooltip="isItemDeleted(item) ? t('Undo Removed Item') : t('Remove Item')" 
+						/>
+					</v-list-item-action>
 					</template>
 				</v-list-item>
 			</template>
@@ -160,7 +160,7 @@
 			:junction-field="editingItem.junctionField"
 			:related-primary-key="editingItem.relatedPrimaryKey"
 			:edits="editingItem.edits"
-			@input="stageUpdate"
+			@input="handleUpdate"
 		/>
 
 		<drawer-collection
@@ -433,7 +433,7 @@ const templateWithDefaults = computed(() => {
 const requiredFields = computed(() => {
 	if (!relationInfo.value) return [];
 
-	const junctionField = relationInfo.value.junctionField.field;
+		const junctionField = relationInfo.value.junctionField.field;
 	const fields = new Set<string>();
 
 	// Always include primary keys for proper item handling
@@ -509,21 +509,32 @@ async function openEditDrawer(item: Record<string, any>) {
 	
 	// For new items (no junction ID)
 	if (!junctionId) {
+		// Find any existing staged changes for this item
+		const stagedItem = stagedChanges.value.create.find(
+			staged => staged[junctionField]?.id === item[junctionField]?.id
+		);
+
 		editingItem.value = {
 			collection: relationInfo.value.junctionCollection.collection,
 			primaryKey: '+',
 			junctionField: junctionField,
 			edits: {
-				// Pass the entire item as edits for new items
-				...item
+				// Use staged changes if they exist, otherwise use the original item
+				...stagedItem || item
 			}
 		};
 	} else {
 		// Existing items with junction ID
+		// Find any existing staged updates for this item
+		const stagedUpdate = stagedChanges.value.update.find(
+			update => update[junctionPkField] === junctionId
+		);
+
 		editingItem.value = {
 			collection: relationInfo.value.junctionCollection.collection,
 			primaryKey: junctionId,
-			junctionField: junctionField
+			junctionField: junctionField,
+			edits: stagedUpdate || undefined
 		};
 	}
 	
@@ -682,13 +693,13 @@ async function refreshSuggestions(keyword: string) {
 			},
 			// Add additional search fields if provided
 			...(props.searchFields?.map(field => ({
-				[field]: {
-					_icontains: keyword,
+			[field]: {
+				_icontains: keyword,
 				},
 			})) || []),
 		],
 	};
-
+	
 	filters.push(searchFilter);
 
 	try {
@@ -721,7 +732,7 @@ async function loadExistingItems() {
 		displayItems.value = [];
 		return;
 	}
-
+	
 	try {
 		const response = await api.get(getEndpoint(relationInfo.value.junctionCollection.collection), {
 			params: {
@@ -772,14 +783,14 @@ watch(
 
 function getItemIcon(item: Record<string, any>): string {
 	if (!relationInfo.value) return 'close';
-
+	
 	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
-
+	
 	// For newly created items (no junction ID)
 	if (!item[junctionPkField]) {
 		return 'delete';
 	}
-
+	
 	// For existing items, show restore if marked for deletion, otherwise close
 	return isItemDeleted(item) ? 'settings_backup_restore' : 'close';
 }
@@ -834,6 +845,57 @@ const customFilter = computed(() => {
 
 	return filter;
 });
+
+function handleUpdate(edits: Record<string, any>) {
+	if (!relationInfo.value) return;
+	
+	const junctionId = editingItem.value?.primaryKey;
+	const junctionField = relationInfo.value.junctionField.field;
+	
+	console.log('Handling update:', {
+		edits,
+		junctionId,
+		editingItem: editingItem.value,
+		stagedChanges: stagedChanges.value
+	});
+	
+	// Check if this is a newly created item
+	const isNewItem = junctionId === '+';
+	
+	if (isNewItem) {
+		// Find the created item in the staged changes
+		const createdItem = stagedChanges.value.create.find(
+			item => item[junctionField]?.id === editingItem.value?.edits?.[junctionField]?.id
+		);
+
+		const relatedId = createdItem?.[junctionField]?.id;
+
+		// Handle updates for newly created items
+		const newStagedChanges = stageUpdate(
+			edits, 
+			junctionId, 
+			relatedId,
+			true
+		);
+		console.log('Staged changes for new item:', newStagedChanges);
+		if (newStagedChanges) {
+			emit('input', newStagedChanges);
+			editDrawerActive.value = false;
+		}
+	} else {
+		// Handle updates for existing items
+		const originalItem = displayItems.value.find(
+			item => item[relationInfo.value.junctionPrimaryKeyField.field] === junctionId
+		);
+		const relatedItemId = originalItem?.[junctionField]?.id;
+	
+		const newStagedChanges = stageUpdate(edits, junctionId, relatedItemId);
+		if (newStagedChanges) {
+			emit('input', newStagedChanges);
+			editDrawerActive.value = false;
+		}
+	}
+}
 </script>
 
 <style lang="scss" scoped>

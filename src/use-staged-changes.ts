@@ -20,34 +20,85 @@ export function useStagedChanges(relationInfo: Ref<RelationM2MTypes | null>) {
   const editItem = ref<Record<string, any> | null>(null);
   const api = useApi();
 
-  function stageUpdate(item: Record<string, any>) {
+  function stageUpdate(
+    edits: Record<string, any>, 
+    junctionId: string | number, 
+    relatedItemId?: number | string,
+    isNewlyCreated?: boolean
+  ) {
     if (!relationInfo.value) return;
     
+    const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
     const junctionField = relationInfo.value.junctionField.field;
-    const junctionId = item.junction_id;
 
-    const newStagedChanges = {
-      ...stagedChanges.value,
-      update: [...stagedChanges.value.update]
-    };
-
-    const updateIndex = newStagedChanges.update.findIndex(
-      update => update.id === junctionId
-    );
-
-    if (updateIndex !== -1) {
-      newStagedChanges.update.splice(updateIndex, 1);
-    }
-
-    newStagedChanges.update.push({
-      id: junctionId,
-      [junctionField]: {
-        ...item
-      }
+    console.log('Staging update:', {
+      edits,
+      junctionId,
+      relatedItemId,
+      isNewlyCreated,
+      currentStaged: stagedChanges.value
     });
 
-    stagedChanges.value = newStagedChanges;
-    return newStagedChanges;
+    // Handle updates for newly created items
+    if (isNewlyCreated) {
+      const newStagedChanges = {
+        ...stagedChanges.value,
+        create: [...stagedChanges.value.create]
+      };
+
+      const createIndex = newStagedChanges.create.findIndex(item => {
+        const itemRelatedId = item[junctionField]?.id;
+        return itemRelatedId === relatedItemId;
+      });
+
+      if (createIndex !== -1) {
+        // Keep only the necessary fields from edits
+        const { $staged, $loading, ...cleanEdits } = edits[junctionField];
+        
+        newStagedChanges.create[createIndex] = {
+          ...newStagedChanges.create[createIndex],
+          [junctionField]: {
+            id: relatedItemId,
+            ...cleanEdits
+          }
+        };
+
+        stagedChanges.value = newStagedChanges;
+        return newStagedChanges;
+      }
+    }
+
+    // Only stage updates for existing items (with a junction ID that's not '+')
+    if (junctionId && junctionId !== '+') {
+      const newStagedChanges = {
+        ...stagedChanges.value,
+        update: [...stagedChanges.value.update]
+      };
+
+      // Create the update structure
+      const updateItem = {
+        [junctionField]: {
+          id: relatedItemId,
+          ...edits[junctionField]
+        },
+        [junctionPkField]: junctionId
+      };
+
+      // Remove any existing update for this item
+      const updateIndex = newStagedChanges.update.findIndex(
+        update => update[junctionPkField] === junctionId
+      );
+
+      if (updateIndex !== -1) {
+        newStagedChanges.update.splice(updateIndex, 1);
+      }
+
+      // Add the new update
+      newStagedChanges.update.push(updateItem);
+
+      stagedChanges.value = newStagedChanges;
+      return newStagedChanges;
+    }
   }
 
   function stageCreate(item: Record<string, any>) {
