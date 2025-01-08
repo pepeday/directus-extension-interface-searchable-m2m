@@ -61,20 +61,20 @@
 							@click="() => handleItemSelection(item)"
 						>
 							<v-list-item-content>
-								<div class="render-template-wrapper">
+								<div class="render-template-wrapper inline-fields">
 									<template v-for="field in getFieldsFromTemplate(props.template)" :key="field">
-										<div v-if="field.includes('html') && item[field.replace(relationInfo.junctionField.field + '.', '')]" 
-											class="field" 
+										<span v-if="field.includes('html') && item[field.replace(relationInfo.junctionField.field + '.', '')]" 
+											class="field inline" 
 											v-html="item[field.replace(relationInfo.junctionField.field + '.', '')]"
-										/>
-										<template v-else>
+										/> 
+										<span v-else class="field inline">
 											<render-template
 												v-if="relationInfo && item"
 												:collection="relationInfo.relatedCollection.collection"
 												:item="item"
 												:template="`{{${field.replace(relationInfo.junctionField.field + '.', '')}}}`"
 											/>
-										</template>
+										</span>
 									</template>
 								</div>
 							</v-list-item-content>
@@ -120,20 +120,20 @@
 					</template>
 					<template v-else>
 					<v-list-item-content>
-						<div class="render-template-wrapper">
+						<div class="render-template-wrapper inline-fields">
 							<template v-for="field in getFieldsFromTemplate(templateWithDefaults)" :key="field">
-									<div v-if="field.includes('html') && item[field]" 
-									class="field" 
-										v-html="item[field]"
-								/>
-								<template v-else>
+								<span v-if="field.includes('html') && item[field]" 
+									class="field inline" 
+									v-html="item[field]"
+								/> 
+								<span v-else class="field inline">
 									<render-template
-											v-if="relationInfo && item"
+										v-if="relationInfo && item"
 										:collection="relationInfo.junctionCollection.collection"
 										:item="item"
-											:template="`{{${field.includes('.') ? field : relationInfo.junctionField.field + '.' + field}}}`"
-										/>
-								</template>
+										:template="`{{${field.includes('.') ? field : relationInfo.junctionField.field + '.' + field}}}`"
+									/>
+								</span>
 							</template>
 						</div>
 					</v-list-item-content>
@@ -946,25 +946,39 @@ const displayedItems = computed(() => {
 </script>
 
 <style lang="scss" scoped>
-.v-list-item {
-  &.loading {
-    opacity: 0.7;
-    pointer-events: none;
-  }
+.inline-fields {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
 
-  .loading-indicator {
-    margin: 0 auto;
-  }
-
-  &.deleted {
-    --v-list-item-border-color: var(--danger-25);
-    --v-list-item-border-color-hover: var(--danger-50);
-    --v-list-item-background-color: var(--danger-10);
-    --v-list-item-background-color-hover: var(--danger-25);
-    
-    :deep(.v-icon) {
-      color: var(--danger-75);
-    }
-  }
+	.field.inline {
+		display: inline-flex;
+		align-items: center;
+	}
 }
+
+.v-list-item {
+	&.loading {
+		opacity: 0.7;
+		pointer-events: none;
+	}
+
+	.loading-indicator {
+		margin: 0 auto;
+	}
+
+	&.deleted {
+		--v-list-item-border-color: var(--danger-25);
+		--v-list-item-border-color-hover: var(--danger-50);
+		--v-list-item-background-color: var(--danger-10);
+		--v-list-item-background-color-hover: var(--danger-25);
+		
+		:deep(.v-icon) {
+			color: var(--danger-75);
+		}
+	}
+}
+
+
 </style>
