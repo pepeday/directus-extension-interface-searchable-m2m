@@ -102,7 +102,7 @@
 		>
 			<template v-if="relationInfo">
 				<v-list-item 
-					v-for="item in consolidatedItems" 
+					v-for="item in displayedItems" 
 					:key="item[relationInfo.junctionField.field]?.[relationInfo.relatedPrimaryKeyField.field]"
 					v-tooltip="t('Click to edit')" 
 					:disabled="disabled || !selectAllowed" 
@@ -143,7 +143,12 @@
 							class="deselect" 
 							:name="getItemIcon(item)" 
 							:style="{ color: isItemDeleted(item) ? 'var(--danger)' : undefined }"
-								@click.stop="handleDelete(item)" 
+							@click.stop="() => {
+								const newStagedChanges = deleteItem(item);
+								if (newStagedChanges) {
+									emit('input', newStagedChanges);
+								}
+							}" 
 							v-tooltip="isItemDeleted(item) ? t('Undo Removed Item') : t('Remove Item')" 
 						/>
 					</v-list-item-action>
@@ -332,47 +337,43 @@ async function fetchStagedItems(ids: (string | number)[]) {
 }
 
 // Add a ref to store fetched item data
-interface StagedItemData {
-	data: Record<string, any> | null;
-	loading: boolean;
-}
-
-const stagedItemsData = ref<Record<string | number, StagedItemData>>({});
+const stagedItemsData = ref<Record<number | string, Record<string, any>>>({});
 
 // Add a watch to fetch data for newly staged items
 watch(
 	() => stagedChanges.value.create,
 	async (newStagedItems) => {
-		const idsToFetch: (string | number)[] = [];
-		const junctionField = relationInfo.value?.junctionField.field;
-		if (!junctionField) return;
+		if (!relationInfo.value) return;
 
-		// Collect all IDs that need fetching
-		for (const item of newStagedItems) {
-			const itemId = item[junctionField]?.id;
-			if (itemId && !stagedItemsData.value[itemId]?.data) {
-				idsToFetch.push(itemId);
-				stagedItemsData.value[itemId] = {
-					data: null,
-					loading: true
-				};
-			}
-		}
+		const junctionField = relationInfo.value.junctionField.field;
+		const relatedCollection = relationInfo.value.relatedCollection.collection;
 
-		if (idsToFetch.length > 0) {
-			const itemsData = await fetchStagedItems(idsToFetch);
-			if (itemsData) {
-				// Update all fetched items at once
-				idsToFetch.forEach(id => {
-					stagedItemsData.value[id] = {
-						data: itemsData[id],
-						loading: false
-					};
-				});
-			}
+		// Get IDs of items that need to be fetched
+		const idsToFetch = newStagedItems
+			.map(item => item[junctionField]?.id)
+			.filter(id => id && !stagedItemsData.value[id]);
+
+		if (idsToFetch.length === 0) return;
+
+		try {
+			const response = await api.get(getEndpoint(relatedCollection), {
+				params: {
+					filter: {
+						id: { _in: idsToFetch }
+					},
+					fields: ['*'] // Or specify the fields you need
+				}
+			});
+
+			// Store fetched data
+			response.data.data.forEach((item: any) => {
+				stagedItemsData.value[item.id] = item;
+			});
+		} catch (error) {
+			console.error('Error fetching staged items data:', error);
 		}
 	},
-	{ deep: true }
+	{ immediate: true }
 );
 
 const consolidatedItems = computed(() => {
@@ -518,6 +519,7 @@ async function openEditDrawer(item: Record<string, any>) {
 			collection: relationInfo.value.junctionCollection.collection,
 			primaryKey: '+',
 			junctionField: junctionField,
+			relatedPrimaryKey: item[junctionField]?.id,
 			edits: {
 				// Use staged changes if they exist, otherwise use the original item
 				...stagedItem || item
@@ -896,6 +898,51 @@ function handleUpdate(edits: Record<string, any>) {
 		}
 	}
 }
+
+const displayedItems = computed(() => {
+	if (!relationInfo.value) return [];
+
+	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
+	const junctionField = relationInfo.value.junctionField.field;
+
+	// Start with existing items and apply any updates
+	const updatedItems = displayItems.value.map(item => {
+		// Check if this item has staged updates
+		const stagedUpdate = stagedChanges.value.update.find(
+			update => update[junctionPkField] === item[junctionPkField]
+		);
+
+		if (stagedUpdate) {
+			// Merge the staged changes with the original item
+			return {
+				...item,
+				[junctionField]: {
+					...item[junctionField],
+					...stagedUpdate[junctionField]
+				}
+			};
+		}
+
+		return item;
+	});
+
+	// Add newly created items
+	const newItems = stagedChanges.value.create.map(item => {
+		const itemId = item[junctionField]?.id;
+		const fetchedData = itemId ? stagedItemsData.value[itemId] : null;
+
+		return {
+			...item,
+			[junctionField]: {
+				...fetchedData,
+				...item[junctionField]
+			},
+			$type: 'created'
+		};
+	});
+
+	return [...updatedItems, ...newItems];
+});
 </script>
 
 <style lang="scss" scoped>

@@ -201,32 +201,60 @@ export function useStagedChanges(relationInfo: Ref<RelationM2MTypes | null>) {
     if (!relationInfo.value) return;
 
     const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
+    const junctionField = relationInfo.value.junctionField.field;
     const junctionId = item[junctionPkField];
     
     console.log('Deleting item:', {
-      junctionPkField,
+      item,
       junctionId,
-      currentDeleteArray: stagedChanges.value.delete
+      stagedChanges: stagedChanges.value
     });
-    
-    if (!junctionId) return;
 
+    // For newly created items (either with or without a related ID)
+    if (!junctionId) {
+      // Find the exact item in the create array by comparing content
+      const itemIndex = stagedChanges.value.create.findIndex(staged => {
+        // For items with an ID
+        if (item[junctionField]?.id) {
+          return staged[junctionField]?.id === item[junctionField]?.id;
+        }
+        
+        // For new items without an ID, compare the name field
+        const { $staged, $loading, ...stagedFields } = staged[junctionField] || {};
+        const { $staged: _, $loading: __, ...itemFields } = item[junctionField] || {};
+        
+        // Compare the name field which should be unique for this staged item
+        return stagedFields.name === itemFields.name;
+      });
+
+      console.log('Found item index:', itemIndex, {
+        staged: stagedChanges.value.create,
+        itemToDelete: item
+      });
+
+      const newStagedChanges = {
+        ...stagedChanges.value,
+        create: stagedChanges.value.create.filter((_, index) => index !== itemIndex)
+      };
+      
+      stagedChanges.value = newStagedChanges;
+      return newStagedChanges;
+    }
+
+    // For existing items (with junction ID), mark for deletion
     const newStagedChanges = {
       ...stagedChanges.value
     };
 
     // Check if ID is already in delete array
     if (stagedChanges.value.delete.includes(junctionId)) {
-      console.log('Item already in delete array - removing it');
       // Remove it if it's there (undo deletion)
       newStagedChanges.delete = stagedChanges.value.delete.filter(id => id !== junctionId);
     } else {
-      console.log('Item not in delete array - adding it');
       // Add it if it's not there (mark for deletion)
       newStagedChanges.delete = [...stagedChanges.value.delete, junctionId];
     }
 
-    console.log('New staged changes:', newStagedChanges);
     stagedChanges.value = newStagedChanges;
     return newStagedChanges;
   }
