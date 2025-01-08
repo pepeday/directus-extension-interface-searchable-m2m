@@ -153,13 +153,14 @@
 		</transition-group>
 
 		<drawer-item
-			v-model:active="editDrawer"
-			:collection="relationInfo.relatedCollection.collection"
-			:primary-key="editItem?.junction_id || '+'"
-			:junction-field="relationInfo.junctionField.field"
-			:circular-field="relationInfo.reverseJunctionField.field"
-			:junction-field-location="'bottom'"
-			@input="saveEdit"
+			v-if="editingItem"
+			v-model:active="editDrawerActive"
+			:collection="editingItem.collection"
+			:primary-key="editingItem.primaryKey"
+			:junction-field="editingItem.junctionField"
+			:related-primary-key="editingItem.relatedPrimaryKey"
+			:edits="editingItem.edits"
+			@input="stageUpdate"
 		/>
 
 		<drawer-collection
@@ -261,6 +262,14 @@ const menuStyle = ref({
 	width: '0px'
 });
 const resizeObserver = ref<ResizeObserver | null>(null);
+const editDrawerActive = ref(false);
+const editingItem = ref<{
+	collection: string;
+	primaryKey: string | number;
+	junctionField?: string;
+	relatedPrimaryKey?: string | number;
+	edits?: Record<string, any>;
+} | null>(null);
 
 // Computed
 const createAllowed = computed(() => {
@@ -491,39 +500,34 @@ function saveEdit() {
 	}
 }
 
-async function openEditDrawer(item: RelationItem) {
-	if (!relationInfo.value?.relatedCollection?.collection) return;
-
-	const junctionId = item[relationInfo.value.junctionPrimaryKeyField.field];
+async function openEditDrawer(item: Record<string, any>) {
+	if (!relationInfo.value) return;
+	
+	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
 	const junctionField = relationInfo.value.junctionField.field;
-
+	const junctionId = item[junctionPkField];
+	
+	// For new items (no junction ID)
 	if (!junctionId) {
-		editItem.value = {
-			...item[junctionField],
-			junction_id: null
-		};
-		editDrawer.value = true;
-		return;
-	}
-
-	try {
-		const response = await api.get(
-			`/items/${relationInfo.value.relatedCollection.collection}/${item[junctionField].id}`,
-			{
-				params: {
-					fields: '*'
-				}
+		editingItem.value = {
+			collection: relationInfo.value.junctionCollection.collection,
+			primaryKey: '+',
+			junctionField: junctionField,
+			edits: {
+				// Pass the entire item as edits for new items
+				...item
 			}
-		);
-
-		editItem.value = {
-			...response.data.data,
-			junction_id: junctionId
 		};
-		editDrawer.value = true;
-	} catch (error) {
-		console.error('Error fetching item data:', error);
+	} else {
+		// Existing items with junction ID
+		editingItem.value = {
+			collection: relationInfo.value.junctionCollection.collection,
+			primaryKey: junctionId,
+			junctionField: junctionField
+		};
 	}
+	
+	editDrawerActive.value = true;
 }
 
 async function handleItemSelection(item: Record<string, any>) {
