@@ -63,10 +63,11 @@
 							<v-list-item-content>
 								<div class="render-template-wrapper">
 									<template v-for="field in getFieldsFromTemplate(templateWithDefaults)" :key="field">
-										<span v-if="field.includes('html') && item[field.replace(relationInfo.junctionField.field + '.', '')]" 
+										<HtmlContent 
+											v-if="field.includes('html') && item[field.replace(relationInfo.junctionField.field + '.', '')]" 
 											class="field" 
-											v-html="item[field.replace(relationInfo.junctionField.field + '.', '')]"
-										/> 
+											:content="item[field.replace(relationInfo.junctionField.field + '.', '')]"
+										/>
 										<template v-else>
 											<render-template
 												v-if="relationInfo && item"
@@ -125,11 +126,11 @@
 						<v-list-item-content>
 							<div class="render-template-wrapper">
 								<template v-for="field in getFieldsFromTemplate(templateWithDefaults)" :key="field">
-									<span 
+									<HtmlContent 
 										v-if="field.includes('html') && item[relationInfo.junctionField.field]?.[field.replace(relationInfo.junctionField.field + '.', '')]" 
 										class="field" 
-										v-html="item[relationInfo.junctionField.field][field.replace(relationInfo.junctionField.field + '.', '')]"
-									/> 
+										:content="item[relationInfo.junctionField.field][field.replace(relationInfo.junctionField.field + '.', '')]"
+									/>
 									<template v-else>
 										<render-template
 											v-if="relationInfo && item"
@@ -193,6 +194,7 @@ import { getEndpoint, getFieldsFromTemplate } from '@directus/utils';
 import { useRelationM2M } from './use-relations';
 import { useStagedChanges } from './use-staged-changes';
 import { useFieldsStore } from '@directus/stores';
+import HtmlContent from './components/html-content.vue';
 
 type RelationFK = string | number | BigInt;
 type RelationItem = RelationFK | Record<string, any>;
