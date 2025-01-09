@@ -61,20 +61,25 @@
 							@click="() => handleItemSelection(item)"
 						>
 							<v-list-item-content>
-								<div class="render-template-wrapper inline-fields">
-									<template v-for="field in getFieldsFromTemplate(props.template)" :key="field">
+								<div class="render-template-wrapper">
+									<template v-for="field in getFieldsFromTemplate(templateWithDefaults)" :key="field">
 										<span v-if="field.includes('html') && item[field.replace(relationInfo.junctionField.field + '.', '')]" 
-											class="field inline" 
+											class="field" 
 											v-html="item[field.replace(relationInfo.junctionField.field + '.', '')]"
 										/> 
-										<span v-else class="field inline">
+										<template v-else>
 											<render-template
 												v-if="relationInfo && item"
-												:collection="relationInfo.relatedCollection.collection"
-												:item="item"
-												:template="`{{${field.replace(relationInfo.junctionField.field + '.', '')}}}`"
+												:collection="relationInfo.junctionCollection.collection"
+												:item="{ 
+													[relationInfo.junctionField.field]: {
+														...item,
+														status: item.status
+													}
+												}"
+												:template="`{{${field}}}`"
 											/>
-										</span>
+										</template>
 									</template>
 								</div>
 							</v-list-item-content>
@@ -114,44 +119,42 @@
 					@click="openEditDrawer(item)"
 				>
 					<template v-if="item[relationInfo.junctionField.field]?.$loading">
-						<v-skeleton-loader
-							type="list-item-icon"
-						/>
+						<v-skeleton-loader type="list-item-icon" />
 					</template>
 					<template v-else>
-					<v-list-item-content>
-						<div class="render-template-wrapper inline-fields">
-							<template v-for="field in getFieldsFromTemplate(templateWithDefaults)" :key="field">
-								<span v-if="field.includes('html') && item[field]" 
-									class="field inline" 
-									v-html="item[field]"
-								/> 
-								<span v-else class="field inline">
-									<render-template
-										v-if="relationInfo && item"
-										:collection="relationInfo.junctionCollection.collection"
-										:item="item"
-										:template="`{{${field.includes('.') ? field : relationInfo.junctionField.field + '.' + field}}}`"
-									/>
-								</span>
-							</template>
-						</div>
-					</v-list-item-content>
+						<v-list-item-content>
+							<div class="render-template-wrapper">
+								<template v-for="field in getFieldsFromTemplate(templateWithDefaults)" :key="field">
+									<span v-if="field.includes('html') && item[field]" 
+										class="field" 
+										v-html="item[field]"
+									/> 
+									<template v-else>
+										<render-template
+											v-if="relationInfo && item"
+											:collection="relationInfo.junctionCollection.collection"
+											:item="item"
+											:template="`{{${field.includes('.') ? field : relationInfo.junctionField.field + '.' + field}}}`"
+										/>
+									</template>
+								</template>
+							</div>
+						</v-list-item-content>
 
-					<v-list-item-action>
-						<v-icon 
-							class="deselect" 
-							:name="getItemIcon(item)" 
-							:style="{ color: isItemDeleted(item) ? 'var(--danger)' : undefined }"
-							@click.stop="() => {
-								const newStagedChanges = deleteItem(item);
-								if (newStagedChanges) {
-									emit('input', newStagedChanges);
-								}
-							}" 
-							v-tooltip="isItemDeleted(item) ? t('Undo Removed Item') : t('Remove Item')" 
-						/>
-					</v-list-item-action>
+						<v-list-item-action>
+							<v-icon 
+								class="deselect" 
+								:name="getItemIcon(item)" 
+								:style="{ color: isItemDeleted(item) ? 'var(--danger)' : undefined }"
+								@click.stop="() => {
+									const newStagedChanges = deleteItem(item);
+									if (newStagedChanges) {
+										emit('input', newStagedChanges);
+									}
+								}" 
+								v-tooltip="isItemDeleted(item) ? t('Undo Removed Item') : t('Remove Item')" 
+							/>
+						</v-list-item-action>
 					</template>
 				</v-list-item>
 			</template>
@@ -661,6 +664,10 @@ async function refreshSuggestions(keyword: string) {
 
 	isSearching.value = true;
 
+	// Get all fields from template without the junction prefix
+	const templateFields = getFieldsFromTemplate(templateWithDefaults.value || '')
+		.map(field => field.replace(`${relationInfo.value.junctionField.field}.`, ''));
+
 	// Get current selected IDs to exclude from search
 	const currentIds = displayItems.value
 		.map((item: RelationItem) => 
@@ -670,12 +677,10 @@ async function refreshSuggestions(keyword: string) {
 
 	const filters: Filter[] = [];
 
-	// Add the custom filter if it exists
 	if (props.filter) {
 		filters.push(props.filter);
 	}
 
-	// Add the current IDs filter to exclude already selected items
 	if (currentIds.length > 0) {
 		filters.push({
 			[relationInfo.value.relatedPrimaryKeyField.field]: {
@@ -684,19 +689,16 @@ async function refreshSuggestions(keyword: string) {
 		});
 	}
 
-	// Create search filter for all searchable fields
 	const searchFilter = {
 		_or: [
-			// Always include the referencing field
 			{
 				[props.referencingField]: {
 					_icontains: keyword,
 				},
 			},
-			// Add additional search fields if provided
 			...(props.searchFields?.map(field => ({
-			[field]: {
-				_icontains: keyword,
+				[field]: {
+					_icontains: keyword,
 				},
 			})) || []),
 		],
@@ -711,14 +713,19 @@ async function refreshSuggestions(keyword: string) {
 				fields: [
 					relationInfo.value.relatedPrimaryKeyField.field,
 					props.referencingField,
-					...getFieldsFromTemplate(props.template || ''),
+					...templateFields, // Use the cleaned template fields
 					...(props.searchFields || []),
+					'status', // Always include status field
 				],
 				filter: filters.length > 1 ? { _and: filters } : filters[0],
 			},
 		});
 
 		suggestedItems.value = response?.data?.data || [];
+		
+		console.log('Template Fields:', templateFields);
+		console.log('Suggested Items:', JSON.stringify(suggestedItems.value, null, 2));
+		
 	} catch (error) {
 		console.error('Error fetching suggestions:', error);
 		suggestedItems.value = [];
@@ -739,7 +746,8 @@ async function loadExistingItems() {
 		const response = await api.get(getEndpoint(relationInfo.value.junctionCollection.collection), {
 			params: {
 				fields: [
-					...requiredFields.value
+					...requiredFields.value,
+					...getFieldsFromTemplate(templateWithDefaults.value || '')
 				],
 				filter: {
 					[relationInfo.value.reverseJunctionField.field]: props.primaryKey
@@ -945,16 +953,36 @@ const displayedItems = computed(() => {
 });
 </script>
 
+<style>
+.v-menu-popper {
+	max-width: min-content !important;
+}
+</style>
+
 <style lang="scss" scoped>
-.inline-fields {
+.render-template-wrapper {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	gap: 4px;
+	gap: 8px;
 
-	.field.inline {
+	.field {
 		display: inline-flex;
 		align-items: center;
+	}
+
+	:deep(.render-template) {
+		display: inline-flex;
+		align-items: center;
+	}
+}
+
+.menu-list {
+	:deep(.render-template-wrapper) {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
 	}
 }
 
@@ -979,6 +1007,4 @@ const displayedItems = computed(() => {
 		}
 	}
 }
-
-
 </style>
