@@ -125,9 +125,10 @@
 						<v-list-item-content>
 							<div class="render-template-wrapper">
 								<template v-for="field in getFieldsFromTemplate(templateWithDefaults)" :key="field">
-									<span v-if="field.includes('html') && item[field]" 
+									<span 
+										v-if="field.includes('html') && item[relationInfo.junctionField.field]?.[field.replace(relationInfo.junctionField.field + '.', '')]" 
 										class="field" 
-										v-html="item[field]"
+										v-html="item[relationInfo.junctionField.field][field.replace(relationInfo.junctionField.field + '.', '')]"
 									/> 
 									<template v-else>
 										<render-template
