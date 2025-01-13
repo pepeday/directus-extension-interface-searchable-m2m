@@ -191,8 +191,8 @@ import { debounce } from 'lodash';
 import { Filter } from '@directus/types';
 import { useApi, useStores } from '@directus/composables';
 import { getEndpoint, getFieldsFromTemplate } from '@directus/utils';
-import { useRelationM2M } from './use-relations';
-import { useStagedChanges } from './use-staged-changes';
+import { useRelationM2M } from './composables/use-relations';
+import { useStagedChanges } from './composables/use-staged-changes';
 import { useFieldsStore } from '@directus/stores';
 import HtmlContent from './components/html-content.vue';
 
