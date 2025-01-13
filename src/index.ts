@@ -1,5 +1,5 @@
 import { defineInterface } from '@directus/extensions-sdk';
-import InterfaceComponent from './interface-component.vue';
+import InterfaceComponent from './searchable-m2m.vue';
 
 export default defineInterface({
 	id: 'directus-extension-interface-searchable-m2m',
