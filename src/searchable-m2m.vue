@@ -108,7 +108,7 @@
 		>
 			<template v-if="relationInfo">
 				<v-list-item 
-					v-for="item in displayedItems" 
+					v-for="(item, index) in displayedItems" 
 					:key="item[relationInfo.junctionField.field]?.[relationInfo.relatedPrimaryKeyField.field]"
 					v-tooltip="t('Click to edit')" 
 					:disabled="disabled || !selectAllowed" 
@@ -117,7 +117,7 @@
 						color: isItemDeleted(item) ? 'var(--danger)' : undefined,
 						backgroundColor: isItemDeleted(item) ? 'var(--danger-alt)' : undefined
 					}"
-					@click="openEditDrawer(item)"
+					@click="openEditDrawer(item, index)"
 				>
 					<template v-if="item[relationInfo.junctionField.field]?.$loading">
 						<v-skeleton-loader type="list-item-icon" />
@@ -184,7 +184,7 @@
 	</template>
 </template>
 
-<script lang="ts" setup>
+<script setup lang="ts">
 import { computed, ref, toRefs, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { debounce } from 'lodash';
@@ -507,7 +507,8 @@ function saveEdit() {
 	}
 }
 
-async function openEditDrawer(item: Record<string, any>) {
+async function openEditDrawer(item: Record<string, any>, index: number) {
+	
 	if (!relationInfo.value) return;
 	
 	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
@@ -516,10 +517,10 @@ async function openEditDrawer(item: Record<string, any>) {
 	
 	// For new items (no junction ID)
 	if (!junctionId) {
-		// Find any existing staged changes for this item
-		const stagedItem = stagedChanges.value.create.find(
-			staged => staged[junctionField]?.id === item[junctionField]?.id
-		);
+		// Get the staged item at the same relative position in the create array
+		const stagedItemIndex = index - displayItems.value.length;
+		const stagedItem = stagedChanges.value.create[stagedItemIndex];
+		
 
 		editingItem.value = {
 			collection: relationInfo.value.junctionCollection.collection,
@@ -527,7 +528,6 @@ async function openEditDrawer(item: Record<string, any>) {
 			junctionField: junctionField,
 			relatedPrimaryKey: item[junctionField]?.id,
 			edits: {
-				// Use staged changes if they exist, otherwise use the original item
 				...stagedItem || item
 			}
 		};
@@ -726,11 +726,8 @@ async function refreshSuggestions(keyword: string) {
 
 		suggestedItems.value = response?.data?.data || [];
 		
-		console.log('Template Fields:', templateFields);
-		console.log('Suggested Items:', JSON.stringify(suggestedItems.value, null, 2));
 		
 	} catch (error) {
-		console.error('Error fetching suggestions:', error);
 		suggestedItems.value = [];
 	} finally {
 		isSearching.value = false;
@@ -865,12 +862,6 @@ function handleUpdate(edits: Record<string, any>) {
 	const junctionId = editingItem.value?.primaryKey;
 	const junctionField = relationInfo.value.junctionField.field;
 	
-	console.log('Handling update:', {
-		edits,
-		junctionId,
-		editingItem: editingItem.value,
-		stagedChanges: stagedChanges.value
-	});
 	
 	// Check if this is a newly created item
 	const isNewItem = junctionId === '+';
@@ -890,7 +881,6 @@ function handleUpdate(edits: Record<string, any>) {
 			relatedId,
 			true
 		);
-		console.log('Staged changes for new item:', newStagedChanges);
 		if (newStagedChanges) {
 			emit('input', newStagedChanges);
 			editDrawerActive.value = false;
@@ -941,6 +931,7 @@ const displayedItems = computed(() => {
 	const newItems = stagedChanges.value.create.map(item => {
 		const itemId = item[junctionField]?.id;
 		const fetchedData = itemId ? stagedItemsData.value[itemId] : null;
+		
 
 		return {
 			...item,
@@ -952,7 +943,8 @@ const displayedItems = computed(() => {
 		};
 	});
 
-	return [...updatedItems, ...newItems];
+	const result = [...updatedItems, ...newItems];
+	return result;
 });
 </script>
 
@@ -1009,5 +1001,9 @@ const displayedItems = computed(() => {
 			color: var(--danger-75);
 		}
 	}
+}
+
+.tags {
+	margin-top: 8px;
 }
 </style>
