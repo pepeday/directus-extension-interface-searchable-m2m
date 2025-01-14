@@ -74,8 +74,7 @@
 												:collection="relationInfo.junctionCollection.collection"
 												:item="{ 
 													[relationInfo.junctionField.field]: {
-														...item,
-														status: item.status
+														...item
 													}
 												}"
 												:template="`{{${field}}}`"
@@ -718,7 +717,6 @@ async function refreshSuggestions(keyword: string) {
 					props.referencingField,
 					...templateFields, // Use the cleaned template fields
 					...(props.searchFields || []),
-					'status', // Always include status field
 				],
 				filter: filters.length > 1 ? { _and: filters } : filters[0],
 			},

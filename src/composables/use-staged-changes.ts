@@ -31,13 +31,7 @@ export function useStagedChanges(relationInfo: Ref<RelationM2MTypes | null>) {
     const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
     const junctionField = relationInfo.value.junctionField.field;
 
-    console.log('Staging update:', {
-      edits,
-      junctionId,
-      relatedItemId,
-      isNewlyCreated,
-      currentStaged: stagedChanges.value
-    });
+
 
     // Handle updates for newly created items
     if (isNewlyCreated) {
@@ -204,11 +198,7 @@ export function useStagedChanges(relationInfo: Ref<RelationM2MTypes | null>) {
     const junctionField = relationInfo.value.junctionField.field;
     const junctionId = item[junctionPkField];
     
-    console.log('Deleting item:', {
-      item,
-      junctionId,
-      stagedChanges: stagedChanges.value
-    });
+
 
     // For newly created items (either with or without a related ID)
     if (!junctionId) {
@@ -227,10 +217,6 @@ export function useStagedChanges(relationInfo: Ref<RelationM2MTypes | null>) {
         return stagedFields.name === itemFields.name;
       });
 
-      console.log('Found item index:', itemIndex, {
-        staged: stagedChanges.value.create,
-        itemToDelete: item
-      });
 
       const newStagedChanges = {
         ...stagedChanges.value,
