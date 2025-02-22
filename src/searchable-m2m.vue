@@ -103,66 +103,21 @@
 			class="tags"
 		>
 			<template v-if="relationInfo">
-				<v-list-item 
+				<relation-item
 					v-for="(item, index) in displayedItems" 
 					:key="item[relationInfo.junctionField.field]?.[relationInfo.relatedPrimaryKeyField.field]"
-					v-tooltip="t('Click to edit')" 
-					:disabled="disabled || !selectAllowed" 
-					class="link block clickable" 
-					:style="{ 
-						color: isItemDeleted(item) ? 'var(--danger)' : undefined,
-						backgroundColor: isItemDeleted(item) ? 'var(--danger-alt)' : undefined
-					}"
-					@click="openEditDrawer(item, index)"
-				>
-					<template v-if="item[relationInfo.junctionField.field]?.$loading">
-						<v-skeleton-loader type="list-item-icon" />
-					</template>
-					<template v-else>
-						<v-list-item-content>
-							<div class="render-template-wrapper">
-								<template v-for="field in getFieldsFromTemplate(templateWithDefaults)" :key="field">
-									<HtmlContent 
-										v-if="field.includes('html') && item[relationInfo.junctionField.field]?.[field.replace(relationInfo.junctionField.field + '.', '')]" 
-										class="field" 
-										:content="item[relationInfo.junctionField.field][field.replace(relationInfo.junctionField.field + '.', '')]"
-									/>
-									<template v-else>
-										<render-template
-											v-if="relationInfo && item"
-											:collection="relationInfo.junctionCollection.collection"
-											:item="item"
-											:template="`{{${field.includes('.') ? field : relationInfo.junctionField.field + '.' + field}}}`"
-										/>
-									</template>
-								</template>
-							</div>
-						</v-list-item-content>
-
-						<v-list-item-action>
-							<v-icon
-								v-tooltip="t('navigate_to_item')"
-								name="launch"
-								clickable
-								class="item-link"
-								:class="{ disabled: item.$type === 'created' }"
-								@click.stop="openItem(item)"
-							/>
-							<v-icon 
-								class="deselect" 
-								:class="{ deleted: item.$type === 'deleted' }"
-								:name="getItemIcon(item)" 
-								v-tooltip="isItemDeleted(item) ? t('Undo Removed Item') : t('Remove Item')" 
-								@click.stop="() => {
-									const newStagedChanges = deleteItem(item);
-									if (newStagedChanges) {
-										emit('input', newStagedChanges);
-									}
-								}"
-							/>
-						</v-list-item-action>
-					</template>
-				</v-list-item>
+					:item="item"
+					:index="index"
+					:disabled="disabled"
+					:select-allowed="selectAllowed"
+					:is-deleted="isItemDeleted(item)"
+					:template="templateWithDefaults"
+					:collection="relationInfo.junctionCollection.collection"
+					:junction-field="relationInfo.junctionField.field"
+					@edit="openEditDrawer"
+					@delete="handleDelete"
+					@navigate="openItem"
+				/>
 			</template>
 		</transition-group>
 
@@ -200,6 +155,7 @@ import { useStagedChanges } from './composables/use-staged-changes';
 import { useFieldsStore } from '@directus/stores';
 import HtmlContent from './components/html-content.vue';
 import { useRouter } from 'vue-router';
+import RelationItem from './components/relation-item.vue';
 
 type RelationFK = string | number | BigInt;
 type RelationItem = RelationFK | Record<string, any>;
@@ -241,10 +197,14 @@ const { relationInfo } = useRelationM2M(collection, field, useStores());
 const { useFieldsStore } = useStores();
 const fieldsStore = useFieldsStore();
 
+const displayItems = ref<any[]>([]);
+
 const {
 	stagedChanges,
 	editDrawer,
-	editItem,
+	editingItem,
+	editDrawerActive,
+	selectedPrimaryKeys,
 	stageUpdate,
 	stageCreate,
 	stageNewItem,
@@ -252,8 +212,10 @@ const {
 	stageDrawerSelection,
 	findExistingItem,
 	isItemDeleted,
-	deleteItem
-} = useStagedChanges(relationInfo);
+	deleteItem,
+	openEditDrawer,
+	handleDrawerUpdate
+} = useStagedChanges(relationInfo, displayItems);
 
 const { usePermissionsStore, useUserStore } = useStores();
 const { currentUser } = useUserStore();
@@ -270,7 +232,6 @@ const localInput = ref<string>('');
 const menuActive = ref<boolean>(false);
 const suggestedItems = ref<Record<string, any>[]>([]);
 const suggestedItemsSelected = ref<number | null>(null);
-const displayItems = ref<any[]>([]);
 const editFields = ref({});
 const currentIds = ref<(string | number)[]>([]);
 const isSearching = ref(false);
@@ -280,14 +241,6 @@ const menuStyle = ref({
 	width: '0px'
 });
 const resizeObserver = ref<ResizeObserver | null>(null);
-const editDrawerActive = ref(false);
-const editingItem = ref<{
-	collection: string;
-	primaryKey: string | number;
-	junctionField?: string;
-	relatedPrimaryKey?: string | number;
-	edits?: Record<string, any>;
-} | null>(null);
 
 // Computed
 const createAllowed = computed(() => {
@@ -512,48 +465,6 @@ function saveEdit() {
 		emit('input', newChanges);
 		editDrawer.value = false;
 	}
-}
-
-async function openEditDrawer(item: Record<string, any>, index: number) {
-	
-	if (!relationInfo.value) return;
-	
-	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
-	const junctionField = relationInfo.value.junctionField.field;
-	const junctionId = item[junctionPkField];
-	
-	// For new items (no junction ID)
-	if (!junctionId) {
-		// Get the staged item at the same relative position in the create array
-		const stagedItemIndex = index - displayItems.value.length;
-		const stagedItem = stagedChanges.value.create[stagedItemIndex];
-		
-
-		editingItem.value = {
-			collection: relationInfo.value.junctionCollection.collection,
-			primaryKey: '+',
-			junctionField: junctionField,
-			relatedPrimaryKey: item[junctionField]?.id,
-			edits: {
-				...stagedItem || item
-			}
-		};
-	} else {
-		// Existing items with junction ID
-		// Find any existing staged updates for this item
-		const stagedUpdate = stagedChanges.value.update.find(
-			update => update[junctionPkField] === junctionId
-		);
-
-		editingItem.value = {
-			collection: relationInfo.value.junctionCollection.collection,
-			primaryKey: junctionId,
-			junctionField: junctionField,
-			edits: stagedUpdate || undefined
-		};
-	}
-	
-	editDrawerActive.value = true;
 }
 
 async function handleItemSelection(item: Record<string, any>) {
@@ -818,42 +729,19 @@ function handleDelete(item: Record<string, any>) {
 	}
 }
 
-// Add computed property for selected primary keys
-const selectedPrimaryKeys = computed(() => {
-	if (!relationInfo.value) return [];
-
-	const junctionField = relationInfo.value.junctionField.field;
-	const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
-
-	// Get IDs from existing items
-	const existingIds = displayItems.value
-		.filter(item => !isItemDeleted(item))
-		.map(item => item[junctionField]?.[relatedPkField])
-		.filter(id => id !== undefined);
-
-	// Get IDs from staged items
-	const stagedIds = stagedChanges.value.create
-		.map(item => item[junctionField]?.id)
-		.filter(id => id !== undefined);
-
-	return [...existingIds, ...stagedIds];
-});
-
 // Add computed property for custom filter
 const customFilter = computed(() => {
 	const filter: Filter = {
 		_and: [],
 	};
 
-	// Add the custom filter if it exists
 	if (props.filter) {
 		filter._and.push(props.filter);
 	}
 
-	// Add filter to exclude already selected items
 	if (selectedPrimaryKeys.value.length > 0) {
 		filter._and.push({
-			[relationInfo.value.relatedPrimaryKeyField.field]: {
+			[relationInfo.value?.relatedPrimaryKeyField.field]: {
 				_nin: selectedPrimaryKeys.value,
 			},
 		});
@@ -863,46 +751,10 @@ const customFilter = computed(() => {
 });
 
 function handleUpdate(edits: Record<string, any>) {
-	if (!relationInfo.value) return;
-	
-	const junctionId = editingItem.value?.primaryKey;
-	const junctionField = relationInfo.value.junctionField.field;
-	
-	
-	// Check if this is a newly created item
-	const isNewItem = junctionId === '+';
-	
-	if (isNewItem) {
-		// Find the created item in the staged changes
-		const createdItem = stagedChanges.value.create.find(
-			item => item[junctionField]?.id === editingItem.value?.edits?.[junctionField]?.id
-		);
-
-		const relatedId = createdItem?.[junctionField]?.id;
-
-		// Handle updates for newly created items
-		const newStagedChanges = stageUpdate(
-			edits, 
-			junctionId, 
-			relatedId,
-			true
-		);
-		if (newStagedChanges) {
-			emit('input', newStagedChanges);
-			editDrawerActive.value = false;
-		}
-	} else {
-		// Handle updates for existing items
-		const originalItem = displayItems.value.find(
-			item => item[relationInfo.value.junctionPrimaryKeyField.field] === junctionId
-		);
-		const relatedItemId = originalItem?.[junctionField]?.id;
-	
-		const newStagedChanges = stageUpdate(edits, junctionId, relatedItemId);
-		if (newStagedChanges) {
-			emit('input', newStagedChanges);
-			editDrawerActive.value = false;
-		}
+	const newStagedChanges = handleDrawerUpdate(edits);
+	if (newStagedChanges) {
+		emit('input', newStagedChanges);
+		editDrawerActive.value = false;
 	}
 }
 
