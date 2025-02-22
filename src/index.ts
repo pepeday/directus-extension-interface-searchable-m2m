@@ -142,38 +142,16 @@ export default defineInterface({
 				field: 'sortField',
 				type: 'string',
 				name: 'Sort Field',
-				collection: relations.m2o?.related_collection,
 				meta: {
-					width: 'half',
+					width: 'full',
 					interface: 'system-field',
 					options: {
-						allowPrimaryKey: true,
+						collectionName: relations.o2m?.collection,
+						typeAllowList: ['integer', 'bigInteger'],
 						allowNone: true,
+						placeholder: 'Choose a field for manual sorting'
 					},
-				},
-			},
-			{
-				field: 'sortDirection',
-				type: 'string',
-				name: 'Sort Direction',
-				schema: {
-					default_value: 'desc',
-				},
-				meta: {
-					width: 'half',
-					interface: 'select-dropdown',
-					options: {
-						choices: [
-							{
-								text: 'Sort Ascending',
-								value: 'asc',
-							},
-							{
-								text: 'Sort Descending',
-								value: 'desc',
-							},
-						],
-					},
+					note: 'Select an integer field from the junction collection to enable manual sorting'
 				},
 			},
 		];
