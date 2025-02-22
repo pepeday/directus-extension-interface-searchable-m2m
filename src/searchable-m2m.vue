@@ -23,16 +23,13 @@
 					
 					<template #append>
 						<v-progress-circular v-if="isSearching" indeterminate small />
-						<v-button
+						<v-icon
 							v-else-if="!disabled && selectAllowed"
 							v-tooltip.bottom="selectAllowed ? t('add_existing') : t('not_allowed')"
-							rounded
-							icon
-							:secondary="true"
+							:name="iconRight"
+							clickable
 							@click="selectModalActive = true"
-						>
-							<v-icon :name="iconRight" />
-						</v-button>
+						/>
 					</template>
 				</v-input>
 			</template>
@@ -143,17 +140,25 @@
 						</v-list-item-content>
 
 						<v-list-item-action>
+							<v-icon
+								v-tooltip="t('navigate_to_item')"
+								name="launch"
+								clickable
+								class="item-link"
+								:class="{ disabled: item.$type === 'created' }"
+								@click.stop="openItem(item)"
+							/>
 							<v-icon 
 								class="deselect" 
+								:class="{ deleted: item.$type === 'deleted' }"
 								:name="getItemIcon(item)" 
-								:style="{ color: isItemDeleted(item) ? 'var(--danger)' : undefined }"
+								v-tooltip="isItemDeleted(item) ? t('Undo Removed Item') : t('Remove Item')" 
 								@click.stop="() => {
 									const newStagedChanges = deleteItem(item);
 									if (newStagedChanges) {
 										emit('input', newStagedChanges);
 									}
-								}" 
-								v-tooltip="isItemDeleted(item) ? t('Undo Removed Item') : t('Remove Item')" 
+								}"
 							/>
 						</v-list-item-action>
 					</template>
@@ -194,6 +199,7 @@ import { useRelationM2M } from './composables/use-relations';
 import { useStagedChanges } from './composables/use-staged-changes';
 import { useFieldsStore } from '@directus/stores';
 import HtmlContent from './components/html-content.vue';
+import { useRouter } from 'vue-router';
 
 type RelationFK = string | number | BigInt;
 type RelationItem = RelationFK | Record<string, any>;
@@ -253,6 +259,8 @@ const { usePermissionsStore, useUserStore } = useStores();
 const { currentUser } = useUserStore();
 const { hasPermission } = usePermissionsStore();
 const api = useApi();
+
+const router = useRouter();
 
 // Refs
 const menuRef = ref(null);
@@ -944,6 +952,15 @@ const displayedItems = computed(() => {
 	const result = [...updatedItems, ...newItems];
 	return result;
 });
+
+function openItem(item: Record<string, any>) {
+	if (!relationInfo.value || !item[relationInfo.value.junctionField.field]) return;
+	
+	const relatedCollection = relationInfo.value.relatedCollection.collection;
+	const relatedId = item[relationInfo.value.junctionField.field][relationInfo.value.relatedPrimaryKeyField.field];
+	
+	router.push(`/content/${relatedCollection}/${relatedId}`);
+}
 </script>
 
 <style>
@@ -1003,5 +1020,44 @@ const displayedItems = computed(() => {
 
 .tags {
 	margin-top: 8px;
+}
+
+.item-link {
+	--v-icon-color: var(--theme--form--field--input--foreground-subdued);
+	transition: color var(--fast) var(--transition);
+	margin: 0 4px;
+
+	&:hover {
+		--v-icon-color: var(--theme--primary);
+	}
+
+	&.disabled {
+		opacity: 0;
+		pointer-events: none;
+	}
+}
+
+.deselect {
+	--v-icon-color: var(--theme--form--field--input--foreground-subdued);
+	transition: color var(--fast) var(--transition);
+	margin: 0 4px;
+	cursor: pointer;
+
+	&:hover {
+		--v-icon-color: var(--theme--danger);
+	}
+
+	&.deleted {
+		--v-icon-color: var(--danger-75);
+	}
+}
+
+.v-list-item {
+	&.deleted {
+		--v-list-item-border-color: var(--danger-25);
+		--v-list-item-border-color-hover: var(--danger-50);
+		--v-list-item-background-color: var(--danger-10);
+		--v-list-item-background-color-hover: var(--danger-25);
+	}
 }
 </style>
