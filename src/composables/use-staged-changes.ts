@@ -102,6 +102,7 @@ export function useStagedChanges(
     
     const junctionId = editingItem.value.primaryKey;
     const junctionField = relationInfo.value.junctionField.field;
+    const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
     
     console.log('Handling drawer update:', {
       edits,
@@ -154,8 +155,33 @@ export function useStagedChanges(
     } else {
       // Handle updates for existing items
       console.log('Updating existing item');
-      const relatedItemId = editingItem.value.relatedPrimaryKey;
-      return stageUpdate(edits, junctionId, relatedItemId);
+      
+      // Find any existing update for this item (including sort)
+      const existingUpdate = stagedChanges.value.update.find(
+        update => update[relationInfo.value!.junctionPrimaryKeyField.field] === junctionId
+      );
+
+      // Find the current item in displayItems to get the related item's ID
+      const currentItem = displayItems.value.find(
+        item => item[relationInfo.value!.junctionPrimaryKeyField.field] === junctionId
+      );
+
+      const relatedItemId = currentItem?.[junctionField]?.[relatedPkField];
+
+      // Merge the edits with existing update data
+      const mergedEdits = {
+        ...existingUpdate, // Keep existing data (including sort)
+        ...edits, // Add new edits
+        [relationInfo.value.junctionPrimaryKeyField.field]: junctionId, // Ensure junction ID is preserved
+        [junctionField]: {
+          ...existingUpdate?.[junctionField], // Keep existing junction field data
+          ...edits[junctionField], // Add new junction field edits
+          [relatedPkField]: relatedItemId // Ensure related item ID is preserved using the correct PK field
+        }
+      };
+
+      console.log('Merged edits:', mergedEdits);
+      return stageUpdate(mergedEdits, junctionId);
     }
   }
 
@@ -170,61 +196,33 @@ export function useStagedChanges(
     const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
     const junctionField = relationInfo.value.junctionField.field;
 
-    // Handle updates for newly created items (Case 4)
-    if (isNewlyCreated) {
-      const newStagedChanges = {
-        ...stagedChanges.value,
-        create: [...stagedChanges.value.create]
-      };
-
-      const createIndex = newStagedChanges.create.findIndex(item => {
-        const itemRelatedId = item[junctionField]?.id;
-        return itemRelatedId === relatedItemId;
-      });
-
-      if (createIndex !== -1) {
-        // Keep only the necessary fields from edits
-        const { $staged, $loading, ...cleanEdits } = edits[junctionField];
-        
-        newStagedChanges.create[createIndex] = {
-          [junctionField]: {
-            ...(relatedItemId ? { id: relatedItemId } : {}),
-            ...cleanEdits,
-            $staged: true
-          }
-        };
-
-        stagedChanges.value = newStagedChanges;
-        return newStagedChanges;
-      }
-    }
-
-    // Handle updates for existing items (Case 3)
+    // Handle updates for existing items
     if (junctionId && junctionId !== '+') {
       const newStagedChanges = {
         ...stagedChanges.value,
         update: [...stagedChanges.value.update]
       };
 
-      // Create the update structure
-      const updateItem = {
-        [junctionField]: {
-          ...(relatedItemId ? { id: relatedItemId } : {}),
-          ...edits[junctionField]
-        },
-        [junctionPkField]: junctionId
-      };
-
-      // Remove any existing update for this item
+      // Find existing update
       const updateIndex = newStagedChanges.update.findIndex(
         update => update[junctionPkField] === junctionId
       );
 
+      // Create the update structure, preserving existing fields
+      const existingUpdate = updateIndex !== -1 ? newStagedChanges.update[updateIndex] : {};
+      
+      // Preserve the exact structure from edits, don't reconstruct it
+      const updateItem = {
+        ...existingUpdate,
+        ...edits
+      };
+
       if (updateIndex !== -1) {
-        newStagedChanges.update.splice(updateIndex, 1);
+        newStagedChanges.update[updateIndex] = updateItem;
+      } else {
+        newStagedChanges.update.push(updateItem);
       }
 
-      newStagedChanges.update.push(updateItem);
       stagedChanges.value = newStagedChanges;
       return newStagedChanges;
     }
