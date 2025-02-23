@@ -11,7 +11,8 @@ export interface StagedChanges {
 
 export function useStagedChanges(
   relationInfo: Ref<RelationM2MTypes | null>,
-  displayItems: Ref<any[]>
+  displayItems: Ref<any[]>,
+  referencingField: string
 ) {
   // Add type safety check
   if (!displayItems.value) {
@@ -255,7 +256,6 @@ export function useStagedChanges(
     if (!relationInfo.value) return;
 
     const junctionField = relationInfo.value.junctionField.field;
-    const referencingField = 'name';
     const tempId = generateTempId();
     
     // If item is a string, it's a text input for creating a new item

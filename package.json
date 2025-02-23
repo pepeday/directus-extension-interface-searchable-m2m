@@ -29,6 +29,7 @@
 		"vue": "^3.5.11"
 	},
 	"dependencies": {
-		"sass": "^1.83.0"
+		"sass": "^1.83.0",
+		"vuedraggable": "^4.1.0"
 	}
 }

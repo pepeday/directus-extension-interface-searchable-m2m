@@ -9,6 +9,13 @@
     }"
     @click="$emit('edit', item, index)"
   >
+    <v-icon 
+      v-if="isSortable" 
+      name="drag_handle" 
+      class="drag-handle" 
+      left 
+      @click.stop="() => {}"
+    />
     <template v-if="item[junctionField]?.$loading">
       <v-skeleton-loader type="list-item-icon" />
     </template>
@@ -58,6 +65,7 @@ import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { getFieldsFromTemplate } from '@directus/utils';
 import HtmlContent from './html-content.vue';
+import Draggable from 'vuedraggable';
 
 const { t } = useI18n();
 
@@ -70,6 +78,7 @@ const props = defineProps<{
   template: string;
   collection: string;
   junctionField: string;
+  isSortable: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -128,6 +137,15 @@ const templateFields = computed(() => {
 
   &.deleted {
     --v-icon-color: var(--danger-75);
+  }
+}
+
+.drag-handle {
+  cursor: grab;
+  transition: color var(--fast) var(--transition);
+  
+  &:hover {
+    color: var(--theme--primary);
   }
 }
 </style> 

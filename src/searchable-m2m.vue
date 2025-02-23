@@ -102,9 +102,37 @@
 			tag="div" 
 			class="tags"
 		>
-			<template v-if="relationInfo">
+			<draggable
+				v-if="isSortable"
+				:model-value="displayedItems"
+				tag="div"
+				item-key="id"
+				handle=".drag-handle"
+				:disabled="!isSortable"
+				v-bind="{ 'force-fallback': true }"
+				@update:model-value="handleSort"
+			>
+				<template #item="{ element, index }">
+					<relation-item
+						:item="element"
+						:index="index"
+						:disabled="disabled"
+						:select-allowed="selectAllowed"
+						:is-deleted="isItemDeleted(element)"
+						:template="templateWithDefaults"
+						:collection="relationInfo.junctionCollection.collection"
+						:junction-field="relationInfo.junctionField.field"
+						:is-sortable="isSortable"
+						@edit="openEditDrawer"
+						@delete="handleDelete"
+						@navigate="openItem"
+					/>
+				</template>
+			</draggable>
+
+			<template v-else>
 				<relation-item
-					v-for="(item, index) in displayedItems" 
+					v-for="(item, index) in displayedItems"
 					:key="item[relationInfo.junctionField.field]?.[relationInfo.relatedPrimaryKeyField.field]"
 					:item="item"
 					:index="index"
@@ -114,6 +142,7 @@
 					:template="templateWithDefaults"
 					:collection="relationInfo.junctionCollection.collection"
 					:junction-field="relationInfo.junctionField.field"
+					:is-sortable="false"
 					@edit="openEditDrawer"
 					@delete="handleDelete"
 					@navigate="openItem"
@@ -156,6 +185,7 @@ import { useFieldsStore } from '@directus/stores';
 import HtmlContent from './components/html-content.vue';
 import { useRouter } from 'vue-router';
 import RelationItem from './components/relation-item.vue';
+import Draggable from 'vuedraggable';
 
 type RelationFK = string | number | BigInt;
 type RelationItem = RelationFK | Record<string, any>;
@@ -187,6 +217,7 @@ const props = withDefaults(
 		sortDirection: 'desc',
 		iconRight: 'local_offer',
 		template: null,
+		sortField: null,
 	}
 );
 
@@ -215,7 +246,7 @@ const {
 	deleteItem,
 	openEditDrawer,
 	handleDrawerUpdate
-} = useStagedChanges(relationInfo, displayItems);
+} = useStagedChanges(relationInfo, displayItems, props.referencingField);
 
 const { usePermissionsStore, useUserStore } = useStores();
 const { currentUser } = useUserStore();
@@ -267,6 +298,10 @@ const showAddCustom = computed(
 );
 
 const isMulti = computed(() => props.allowMultiple && fromSeparatedTag(localInput.value));
+
+const isSortable = computed(() => {
+	return !!props.sortField && !props.disabled;
+});
 
 // Add this function to fetch multiple items at once
 async function fetchStagedItems(ids: (string | number)[]) {
@@ -376,7 +411,18 @@ const consolidatedItems = computed(() => {
 		items.push(structuredItem);
 	});
 
-	return items;
+	const result = [...items];
+
+	// Sort items by sortField if it exists
+	if (props.sortField) {
+		result.sort((a, b) => {
+			const aSort = a[props.sortField!] || 0;
+			const bSort = b[props.sortField!] || 0;
+			return aSort - bSort;
+		});
+	}
+
+	return result;
 });
 
 const templateWithDefaults = computed(() => {
@@ -775,10 +821,7 @@ const displayedItems = computed(() => {
 			// Merge the staged changes with the original item
 			return {
 				...item,
-				[junctionField]: {
-					...item[junctionField],
-					...stagedUpdate[junctionField]
-				}
+				...stagedUpdate // This will include the sort field
 			};
 		}
 
@@ -789,7 +832,6 @@ const displayedItems = computed(() => {
 	const newItems = stagedChanges.value.create.map(item => {
 		const itemId = item[junctionField]?.id;
 		const fetchedData = itemId ? stagedItemsData.value[itemId] : null;
-		
 
 		return {
 			...item,
@@ -802,6 +844,16 @@ const displayedItems = computed(() => {
 	});
 
 	const result = [...updatedItems, ...newItems];
+
+	// Sort items by sortField if it exists
+	if (props.sortField) {
+		result.sort((a, b) => {
+			const aSort = a[props.sortField!] || 0;
+			const bSort = b[props.sortField!] || 0;
+			return aSort - bSort;
+		});
+	}
+
 	return result;
 });
 
@@ -812,6 +864,35 @@ function openItem(item: Record<string, any>) {
 	const relatedId = item[relationInfo.value.junctionField.field][relationInfo.value.relatedPrimaryKeyField.field];
 	
 	router.push(`/content/${relatedCollection}/${relatedId}`);
+}
+
+// Add function to handle sort updates
+function handleSort(items: any[]) {
+	if (!relationInfo.value || !props.sortField) return;
+	
+	// Reset any existing sort updates
+	stagedChanges.value = {
+		...stagedChanges.value,
+		update: [] // Clear existing updates before adding new sort order
+	};
+
+	// Create update entries for each item
+	items.forEach((item, index) => {
+		const junctionPkField = relationInfo.value!.junctionPrimaryKeyField.field;
+		const junctionField = relationInfo.value!.junctionField.field;
+		
+		// Create update object following staging-cases pattern
+		const update = {
+			[junctionPkField]: item.id,
+			[props.sortField!]: index + 1
+		};
+
+		// Add to staged updates
+		stagedChanges.value.update.push(update);
+	});
+
+	// Emit the staged changes structure
+	emit('input', stagedChanges.value);
 }
 </script>
 

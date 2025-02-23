@@ -1,0 +1,5 @@
+Align closely with list-o2m.vue
+Write efficient code.
+Try to modularize your code as much as possible.
+Keep logic and staging in use-staged-changes.ts
+Use $index, $type, $edits
