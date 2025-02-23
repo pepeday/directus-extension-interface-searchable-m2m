@@ -189,7 +189,7 @@ import Draggable from 'vuedraggable';
 
 type RelationFK = string | number | BigInt;
 type RelationItem = RelationFK | Record<string, any>;
-console.log('Version 6');
+console.log('Version 7');
 const props = withDefaults(
 	defineProps<{
 		value?: RelationItem[];
@@ -340,7 +340,7 @@ async function fetchStagedItems(ids: (string | number)[]) {
 // Add a ref to store fetched item data
 const stagedItemsData = ref<Record<number | string, Record<string, any>>>({});
 
-// Add a watch to fetch data for newly staged items
+// Update the watch for stagedChanges.value.create
 watch(
 	() => stagedChanges.value.create,
 	async (newStagedItems) => {
@@ -348,10 +348,11 @@ watch(
 
 		const junctionField = relationInfo.value.junctionField.field;
 		const relatedCollection = relationInfo.value.relatedCollection.collection;
+		const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
 
 		// Get IDs of items that need to be fetched
 		const idsToFetch = newStagedItems
-			.map(item => item[junctionField]?.id)
+			.map(item => item[junctionField]?.[relatedPkField])
 			.filter(id => id && !stagedItemsData.value[id]);
 
 		if (idsToFetch.length === 0) return;
@@ -360,7 +361,7 @@ watch(
 			const response = await api.get(getEndpoint(relatedCollection), {
 				params: {
 					filter: {
-						id: { _in: idsToFetch }
+						[relatedPkField]: { _in: idsToFetch }
 					},
 					fields: ['*'] // Or specify the fields you need
 				}
@@ -368,7 +369,7 @@ watch(
 
 			// Store fetched data
 			response.data.data.forEach((item: any) => {
-				stagedItemsData.value[item.id] = item;
+				stagedItemsData.value[item[relatedPkField]] = item;
 			});
 		} catch (error) {
 			console.error('Error fetching staged items data:', error);
@@ -803,65 +804,84 @@ const customFilter = computed(() => {
 	return filter;
 });
 
+function handleSort(items: any[]) {
+	if (!relationInfo.value || !props.sortField) return;
+	
+	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
+	
+	// Get existing updates to preserve them
+	const existingUpdates = stagedChanges.value.update.reduce((acc, update) => {
+		acc[update[junctionPkField]] = update;
+		return acc;
+	}, {} as Record<string | number, any>);
+
+	// Update sort values based on new order
+	const newUpdates = items.map((item, index) => {
+		const itemId = item[junctionPkField];
+		const existingUpdate = existingUpdates[itemId];
+		const newSortValue = index + 1;
+
+		// If there's an existing update, preserve its data
+		if (existingUpdate) {
+			return {
+				...existingUpdate,
+				[props.sortField!]: newSortValue
+			};
+		}
+
+		// Otherwise just create a new update with the sort value
+		return {
+			[junctionPkField]: itemId,
+			[props.sortField!]: newSortValue
+		};
+	});
+
+	stagedChanges.value = {
+		...stagedChanges.value,
+		update: newUpdates
+	};
+
+	emit('input', stagedChanges.value);
+}
+
 function handleDrawerUpdateWithSort(edits: Record<string, any>) {
 	if (!relationInfo.value || !editingItem.value) return;
 	
 	const junctionId = editingItem.value.primaryKey;
 	const junctionField = relationInfo.value.junctionField.field;
 	const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
+	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
 	
-	const isNewItem = junctionId === '+';
-	
-	if (isNewItem) {
+	if (junctionId === '+') {
 		return handleDrawerUpdate(edits);
-	} else {
-		// Get existing update for this item
-		const existingUpdate = stagedChanges.value.update.find(
-			update => update[relationInfo.value!.junctionPrimaryKeyField.field] === junctionId
-		);
-
-		// Get current item data
-		const currentItem = displayedItems.value.find(
-			item => item.id === junctionId
-		);
-
-		const sortValue = existingUpdate?.[props.sortField!] ?? currentItem?.[props.sortField!];
-		const relatedItemId = currentItem?.[junctionField]?.[relatedPkField];
-
-		// Check if we're only sorting (no field updates)
-		const isOnlySorting = !edits[junctionField];
-
-		let mergedEdits;
-		if (isOnlySorting) {
-			mergedEdits = {
-				...existingUpdate, // Preserve ALL existing updates
-				[relationInfo.value.junctionPrimaryKeyField.field]: junctionId,
-				[props.sortField!]: sortValue
-			};
-		} else {
-			// For field updates, merge everything except junction field updates
-			const { [junctionField]: _, ...existingNonJunctionUpdates } = existingUpdate || {};
-			
-			mergedEdits = {
-				...existingNonJunctionUpdates, // Preserve non-junction field updates (like sort)
-				[relationInfo.value.junctionPrimaryKeyField.field]: junctionId,
-				[junctionField]: {
-					...edits[junctionField], // Only use new junction field edits
-					[relatedPkField]: relatedItemId // Ensure related ID is preserved
-				}
-			};
-
-			// Preserve sort if it exists
-			if (sortValue !== undefined) {
-				mergedEdits[props.sortField!] = sortValue;
-			}
-		}
-
-		console.log('Merged edits:', mergedEdits);
-		const result = stageUpdate(mergedEdits, junctionId);
-		console.log('Stage update result:', result);
-		return result;
 	}
+
+	// Get existing update to preserve sort
+	const existingUpdate = stagedChanges.value.update.find(
+		update => update[junctionPkField] === junctionId
+	);
+
+	const currentItem = displayedItems.value.find(
+		item => item[junctionPkField] === junctionId
+	);
+
+	// Create merged edits preserving all necessary data
+	const mergedEdits = {
+		[junctionPkField]: junctionId,
+		...existingUpdate, // Preserve existing updates (including sort)
+		...edits // Add new edits
+	};
+
+	// Properly structure junction field data
+	if (edits[junctionField]) {
+		mergedEdits[junctionField] = {
+			...existingUpdate?.[junctionField], // Preserve existing junction data
+			...edits[junctionField], // Add new junction data
+			[relatedPkField]: currentItem?.[junctionField]?.[relatedPkField] // Ensure related ID is preserved
+		};
+	}
+
+	return stageUpdate(mergedEdits, junctionId);
 }
 
 function handleUpdate(edits: Record<string, any>) {
@@ -877,6 +897,7 @@ const displayedItems = computed(() => {
 
 	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
 	const junctionField = relationInfo.value.junctionField.field;
+	const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
 
 	// Start with existing items and apply any updates
 	const updatedItems = displayItems.value.map(item => {
@@ -886,10 +907,9 @@ const displayedItems = computed(() => {
 		);
 
 		if (stagedUpdate) {
-			// Merge the staged changes with the original item
 			return {
 				...item,
-				...stagedUpdate // This will include the sort field
+				...stagedUpdate
 			};
 		}
 
@@ -898,7 +918,7 @@ const displayedItems = computed(() => {
 
 	// Add newly created items
 	const newItems = stagedChanges.value.create.map(item => {
-		const itemId = item[junctionField]?.id;
+		const itemId = item[junctionField]?.[relatedPkField];
 		const fetchedData = itemId ? stagedItemsData.value[itemId] : null;
 
 		return {
@@ -913,11 +933,11 @@ const displayedItems = computed(() => {
 
 	const result = [...updatedItems, ...newItems];
 
-	// Only sort if sortField is set
+	// Sort by the sortField if it exists
 	if (props.sortField) {
 		result.sort((a, b) => {
-			const aSort = a[props.sortField!] || 0;
-			const bSort = b[props.sortField!] || 0;
+			const aSort = Number(a[props.sortField!] || 0);
+			const bSort = Number(b[props.sortField!] || 0);
 			return aSort - bSort;
 		});
 	}
@@ -932,62 +952,6 @@ function openItem(item: Record<string, any>) {
 	const relatedId = item[relationInfo.value.junctionField.field][relationInfo.value.relatedPrimaryKeyField.field];
 	
 	router.push(`/content/${relatedCollection}/${relatedId}`);
-}
-
-// Add function to handle sort updates
-function handleSort(items: any[]) {
-	if (!relationInfo.value || !props.sortField) return;
-	
-	const junctionField = relationInfo.value.junctionField.field;
-	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
-	const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
-	
-	console.log('HandleSort - Initial items:', items);
-	
-	// Get existing non-sort updates
-	const existingUpdates = stagedChanges.value.update.reduce((acc, update) => {
-		const itemId = update[junctionPkField];
-		
-		// Keep non-sort fields from existing updates
-		const { [props.sortField!]: _, ...otherFields } = update;
-		if (Object.keys(otherFields).length > 1) {
-			acc[itemId] = otherFields;
-		}
-		return acc;
-	}, {} as Record<string | number, any>);
-
-	console.log('Existing updates:', existingUpdates);
-
-	const newUpdates = items.map((item, index) => {
-		const itemId = item.id;
-		const relatedItemId = item[junctionField]?.[relatedPkField];
-
-		const update = {
-			...existingUpdates[itemId],
-			[junctionPkField]: itemId,
-			[props.sortField!]: index + 1,
-			// Include the junction field with related item ID if it exists
-			...(relatedItemId && {
-				[junctionField]: {
-					...item[junctionField],
-					[relatedPkField]: relatedItemId
-				}
-			})
-		};
-		console.log(`Update for item ${itemId}:`, update);
-		return update;
-	});
-
-	console.log('New updates array:', newUpdates);
-
-	// Reset updates but preserve existing edits
-	stagedChanges.value = {
-		...stagedChanges.value,
-		update: newUpdates
-	};
-
-	console.log('Final staged changes:', stagedChanges.value);
-	emit('input', stagedChanges.value);
 }
 </script>
 

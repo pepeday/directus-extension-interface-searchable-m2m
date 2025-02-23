@@ -187,14 +187,13 @@ export function useStagedChanges(
 
   function stageUpdate(
     edits: Record<string, any>,
-    junctionId: string | number,
-    relatedItemId?: number | string,
-    isNewlyCreated?: boolean
+    junctionId?: string | number
   ) {
     if (!relationInfo.value) return;
     
     const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
     const junctionField = relationInfo.value.junctionField.field;
+    const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
 
     // Handle updates for existing items
     if (junctionId && junctionId !== '+') {
@@ -208,14 +207,32 @@ export function useStagedChanges(
         update => update[junctionPkField] === junctionId
       );
 
+      // Get the current item to preserve related ID
+      const currentItem = displayItems.value.find(
+        item => item[junctionPkField] === junctionId
+      );
+
       // Create the update structure, preserving existing fields
       const existingUpdate = updateIndex !== -1 ? newStagedChanges.update[updateIndex] : {};
       
-      // Preserve the exact structure from edits, don't reconstruct it
       const updateItem = {
         ...existingUpdate,
+        [junctionPkField]: junctionId,
         ...edits
       };
+
+      // Ensure junction field data is properly structured
+      if (edits[junctionField]) {
+        updateItem[junctionField] = {
+          ...existingUpdate[junctionField],
+          ...edits[junctionField]
+        };
+
+        // Always include the related item ID if we have it
+        if (currentItem?.[junctionField]?.[relatedPkField]) {
+          updateItem[junctionField][relatedPkField] = currentItem[junctionField][relatedPkField];
+        }
+      }
 
       if (updateIndex !== -1) {
         newStagedChanges.update[updateIndex] = updateItem;
@@ -254,6 +271,7 @@ export function useStagedChanges(
     if (!relationInfo.value) return;
 
     const junctionField = relationInfo.value.junctionField.field;
+    const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
     const tempId = generateTempId();
     
     // If item is a string, it's a text input for creating a new item
@@ -278,6 +296,7 @@ export function useStagedChanges(
     const stagedItem = {
       [junctionField]: {
         ...(item[junctionField] || {}),
+        [relatedPkField]: item[relatedPkField], // Use the correct PK field
         $tempId: tempId
       }
     };
@@ -300,7 +319,7 @@ export function useStagedChanges(
     // Only include the junction field data
     const stagedItem = {
       [junctionField]: {
-        id: item[relatedPkField]
+        [relatedPkField]: item[relatedPkField]
       }
     };
 
@@ -313,12 +332,14 @@ export function useStagedChanges(
     const junctionField = relationInfo.value.junctionField.field;
     const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
 
-    const itemId = typeof item === 'string' || typeof item === 'number' ? item : item[relatedPkField];
+    const itemId = typeof item === 'string' || typeof item === 'number' 
+      ? item 
+      : item[relatedPkField];
 
     // Only include the junction field data
     const stagedItem = {
       [junctionField]: {
-        id: itemId
+        [relatedPkField]: itemId
       }
     };
 
@@ -396,6 +417,40 @@ export function useStagedChanges(
     return newStagedChanges;
   }
 
+  async function fetchStagedItems(ids: (string | number)[]) {
+    if (!relationInfo.value) return null;
+
+    try {
+      const response = await api.get(
+        getEndpoint(relationInfo.value.relatedCollection.collection),
+        {
+          params: {
+            fields: [
+              relationInfo.value.relatedPrimaryKeyField.field,
+              referencingField,
+              ...getFieldsFromTemplate(props.template || '')
+            ],
+            filter: {
+              [relationInfo.value.relatedPrimaryKeyField.field]: {
+                _in: ids
+              }
+            }
+          }
+        }
+      );
+      // Convert array to map for easier lookup
+      const itemsMap: Record<string | number, any> = {};
+      response.data.data.forEach((item: any) => {
+        const pkField = relationInfo.value!.relatedPrimaryKeyField.field;
+        itemsMap[item[pkField]] = item;
+      });
+      return itemsMap;
+    } catch (error) {
+      console.error('Error fetching item data:', error);
+      return null;
+    }
+  }
+
   return {
     stagedChanges,
     editDrawer,
@@ -411,6 +466,7 @@ export function useStagedChanges(
     isItemDeleted,
     deleteItem,
     openEditDrawer,
-    handleDrawerUpdate
+    handleDrawerUpdate,
+    fetchStagedItems
   };
 } 
