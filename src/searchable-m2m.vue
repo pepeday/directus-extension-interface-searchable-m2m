@@ -808,6 +808,7 @@ function handleSort(items: any[]) {
 	if (!relationInfo.value || !props.sortField) return;
 	
 	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
+	const junctionField = relationInfo.value.junctionField.field;
 	
 	// Get existing updates to preserve them
 	const existingUpdates = stagedChanges.value.update.reduce((acc, update) => {
@@ -815,29 +816,63 @@ function handleSort(items: any[]) {
 		return acc;
 	}, {} as Record<string | number, any>);
 
-	// Update sort values based on new order
-	const newUpdates = items.map((item, index) => {
+	// Separate existing and new items
+	const existingItems: any[] = [];
+	const newItemsWithIndex: [any, number][] = [];
+
+	// First pass - categorize items and record their new positions
+	items.forEach((item, index) => {
+		const junctionId = item[junctionPkField];
+		if (junctionId) {
+			existingItems.push([item, index]);
+		} else {
+			// For new items, we need to match them with their create entry
+			const tempId = item[junctionField]?.$tempId;
+			if (tempId) {
+				newItemsWithIndex.push([item, index]);
+			}
+		}
+	});
+
+	// Handle updates for existing items
+	const newUpdates = existingItems.map(([item, index]) => {
 		const itemId = item[junctionPkField];
 		const existingUpdate = existingUpdates[itemId];
 		const newSortValue = index + 1;
 
-		// If there's an existing update, preserve its data
 		if (existingUpdate) {
 			return {
 				...existingUpdate,
+				[junctionPkField]: itemId,
 				[props.sortField!]: newSortValue
 			};
 		}
 
-		// Otherwise just create a new update with the sort value
 		return {
 			[junctionPkField]: itemId,
 			[props.sortField!]: newSortValue
 		};
 	});
 
+	// Update sort values for new items in create array
+	const newCreate = [...stagedChanges.value.create];
+	newItemsWithIndex.forEach(([item, index]) => {
+		const tempId = item[junctionField]?.$tempId;
+		const createIndex = newCreate.findIndex(
+			createItem => createItem[junctionField]?.$tempId === tempId
+		);
+
+		if (createIndex !== -1) {
+			newCreate[createIndex] = {
+				...newCreate[createIndex],
+				[props.sortField!]: index + 1
+			};
+		}
+	});
+
 	stagedChanges.value = {
 		...stagedChanges.value,
+		create: newCreate,
 		update: newUpdates
 	};
 
