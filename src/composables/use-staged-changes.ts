@@ -318,10 +318,15 @@ export function useStagedChanges(
     const junctionField = relationInfo.value.junctionField.field;
     const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
 
-    // Only include the junction field data, no sort value
+    // Get the full item data first
+    const itemData = await fetchStagedItems([item[relatedPkField]]);
+    const fullItemData = itemData?.[item[relatedPkField]];
+
+    // Create staged item with full data
     const stagedItem = {
       [junctionField]: {
-        [relatedPkField]: item[relatedPkField],
+        ...fullItemData,  // Include all item data
+        id: item[relatedPkField],
         $staged: true
       }
     };
@@ -420,7 +425,7 @@ export function useStagedChanges(
     return newStagedChanges;
   }
 
-  async function fetchStagedItems(ids: (string | number)[]) {
+  async function fetchStagedItems(ids: (string | number)[], template?: string) {
     if (!relationInfo.value) return null;
 
     try {
@@ -431,7 +436,7 @@ export function useStagedChanges(
             fields: [
               relationInfo.value.relatedPrimaryKeyField.field,
               referencingField,
-              ...getFieldsFromTemplate(props.template || '')
+              ...getFieldsFromTemplate(template || '')
             ],
             filter: {
               [relationInfo.value.relatedPrimaryKeyField.field]: {
@@ -441,11 +446,10 @@ export function useStagedChanges(
           }
         }
       );
-      // Convert array to map for easier lookup
+
       const itemsMap: Record<string | number, any> = {};
       response.data.data.forEach((item: any) => {
-        const pkField = relationInfo.value!.relatedPrimaryKeyField.field;
-        itemsMap[item[pkField]] = item;
+        itemsMap[item[relationInfo.value!.relatedPrimaryKeyField.field]] = item;
       });
       return itemsMap;
     } catch (error) {
