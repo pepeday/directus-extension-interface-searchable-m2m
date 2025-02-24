@@ -718,6 +718,8 @@ async function refreshSuggestions(keyword: string) {
 			})) || []),
 		],
 	};
+
+	console.log(searchFilter);
 	
 	filters.push(searchFilter);
 
