@@ -116,35 +116,19 @@ export function useStagedChanges(
       currentStagedChanges: stagedChanges.value
     });
     
-    // For new items
-    if (junctionId === '+') {
-      const originalItem = editingItem.value.edits;
-      const tempId = originalItem?.[junctionField]?.$tempId;
-      
-      if (!tempId) return;
-
+    // For new items with $tempId
+    if (junctionId === '+' && edits[junctionField]?.$tempId) {
+      const tempId = edits[junctionField].$tempId;
       const itemIndex = stagedChanges.value.create.findIndex(item => 
         item[junctionField]?.$tempId === tempId
       );
 
       if (itemIndex !== -1) {
-        const existingItem = stagedChanges.value.create[itemIndex];
-        if (!existingItem) return;
-
         const updatedCreate = [...stagedChanges.value.create];
-        
-        // Take root level fields from existing item (like sort)
-        // Take the entire junction field object from edits (already consolidated)
-        const updatedItem = {
-          ...existingItem,  // Preserve root level fields (sort, etc)
-          ...edits,         // Apply any new root level changes
-          [junctionField]: {
-            ...edits[junctionField],  // Take consolidated junction field updates
-            $tempId: tempId          // Preserve metadata
-          }
+        updatedCreate[itemIndex] = {
+          ...updatedCreate[itemIndex],
+          ...edits
         };
-        
-        updatedCreate[itemIndex] = updatedItem;
 
         const newStagedChanges = {
           ...stagedChanges.value,
@@ -154,37 +138,37 @@ export function useStagedChanges(
         stagedChanges.value = newStagedChanges;
         return newStagedChanges;
       }
-    } else {
-      // Handle updates for existing items
-      console.log('Updating existing item');
-      
-      // Find any existing update for this item (including sort)
-      const existingUpdate = stagedChanges.value.update.find(
-        update => update[relationInfo.value!.junctionPrimaryKeyField.field] === junctionId
-      );
-
-      // Find the current item in displayItems to get the related item's ID
-      const currentItem = displayItems.value.find(
-        item => item[relationInfo.value!.junctionPrimaryKeyField.field] === junctionId
-      );
-
-      const relatedItemId = currentItem?.[junctionField]?.[relatedPkField];
-
-      // Merge the edits with existing update data
-      const mergedEdits = {
-        ...existingUpdate, // Keep existing data (including sort)
-        ...edits, // Add new edits
-        [relationInfo.value.junctionPrimaryKeyField.field]: junctionId, // Ensure junction ID is preserved
-        [junctionField]: {
-          ...existingUpdate?.[junctionField], // Keep existing junction field data
-          ...edits[junctionField], // Add new junction field edits
-          [relatedPkField]: relatedItemId // Ensure related item ID is preserved using the correct PK field
-        }
-      };
-
-      console.log('Merged edits:', mergedEdits);
-      return stageUpdate(mergedEdits, junctionId);
     }
+    
+    // For staged items (existing items that were just added)
+    if (edits[junctionField]?.id && edits[junctionField]?.$staged) {
+      const itemId = edits[junctionField].id;
+      const itemIndex = stagedChanges.value.create.findIndex(item => 
+        item[junctionField]?.id === itemId && item[junctionField]?.$staged
+      );
+
+      if (itemIndex !== -1) {
+        const updatedCreate = [...stagedChanges.value.create];
+        updatedCreate[itemIndex] = {
+          ...updatedCreate[itemIndex],
+          [junctionField]: {
+            ...edits[junctionField],
+            $staged: true
+          }
+        };
+
+        const newStagedChanges = {
+          ...stagedChanges.value,
+          create: updatedCreate
+        };
+
+        stagedChanges.value = newStagedChanges;
+        return newStagedChanges;
+      }
+    }
+    
+    // For existing items
+    return stageUpdate(edits, junctionId);
   }
 
   function stageUpdate(
