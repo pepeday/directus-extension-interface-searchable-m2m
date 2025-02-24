@@ -102,15 +102,13 @@
 			tag="div" 
 			class="tags"
 		>
-			<draggable
+			<Draggable
 				v-if="isSortable"
-				:model-value="displayedItems"
-				tag="div"
+				v-model="sortableItems"
+				:disabled="!isSortable"
+				@change="handleDragChange"
 				item-key="id"
 				handle=".drag-handle"
-				:disabled="!isSortable"
-				v-bind="{ 'force-fallback': true }"
-				@update:model-value="handleSort"
 			>
 				<template #item="{ element, index }">
 					<relation-item
@@ -128,7 +126,7 @@
 						@navigate="openItem"
 					/>
 				</template>
-			</draggable>
+			</Draggable>
 
 			<template v-else>
 				<relation-item
@@ -189,7 +187,7 @@ import Draggable from 'vuedraggable';
 
 type RelationFK = string | number | BigInt;
 type RelationItem = RelationFK | Record<string, any>;
-console.log('Version 7');
+
 const props = withDefaults(
 	defineProps<{
 		value?: RelationItem[];
@@ -245,8 +243,9 @@ const {
 	isItemDeleted,
 	deleteItem,
 	openEditDrawer,
-	handleDrawerUpdate
-} = useStagedChanges(relationInfo, displayItems, props.referencingField);
+	handleDrawerUpdate,
+	handleSort
+} = useStagedChanges(relationInfo, displayItems, props.referencingField, props.sortField, emit);
 
 const { usePermissionsStore, useUserStore } = useStores();
 const { currentUser } = useUserStore();
@@ -272,6 +271,54 @@ const menuStyle = ref({
 	width: '0px'
 });
 const resizeObserver = ref<ResizeObserver | null>(null);
+
+// Change displayedItems from computed to ref
+const sortableItems = ref<any[]>([]);
+
+// Update the computed to set sortableItems
+watch(
+	() => [...displayItems.value, ...stagedChanges.value.create],
+	(items) => {
+		if (!relationInfo.value) return;
+
+		const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
+		const junctionField = relationInfo.value.junctionField.field;
+		const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
+
+		// Process existing items
+		const processedItems = displayItems.value.map(item => {
+			const stagedUpdate = stagedChanges.value.update.find(
+				update => update[junctionPkField] === item[junctionPkField]
+			);
+			return stagedUpdate ? { ...item, ...stagedUpdate } : item;
+		});
+
+		// Process new items
+		const stagedItems = stagedChanges.value.create.map(item => {
+			const itemId = item[junctionField]?.[relatedPkField];
+			return {
+				...item,
+				[junctionField]: {
+					...item[junctionField]
+				},
+				$type: 'created'
+			};
+		});
+
+		// Combine and sort
+		const combined = [...processedItems, ...stagedItems];
+		if (props.sortField) {
+			combined.sort((a, b) => {
+				const aSort = Number(a[props.sortField!] || 0);
+				const bSort = Number(b[props.sortField!] || 0);
+				return aSort - bSort;
+			});
+		}
+
+		sortableItems.value = combined;
+	},
+	{ immediate: true }
+);
 
 // Computed
 const createAllowed = computed(() => {
@@ -804,79 +851,21 @@ const customFilter = computed(() => {
 	return filter;
 });
 
-function handleSort(items: any[]) {
-	if (!relationInfo.value || !props.sortField) return;
+// Add this function to handle drag events
+function handleDragChange(event: any) {
+	console.log('Drag event details:', {
+		event,
+		type: event.moved ? 'moved' : 'other',
+		oldIndex: event.moved?.oldIndex,
+		newIndex: event.moved?.newIndex,
+		element: event.moved?.element
+	});
 	
-	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
-	const junctionField = relationInfo.value.junctionField.field;
-	
-	// Get existing updates to preserve them
-	const existingUpdates = stagedChanges.value.update.reduce((acc, update) => {
-		acc[update[junctionPkField]] = update;
-		return acc;
-	}, {} as Record<string | number, any>);
-
-	// Separate existing and new items
-	const existingItems: any[] = [];
-	const newItemsWithIndex: [any, number][] = [];
-
-	// First pass - categorize items and record their new positions
-	items.forEach((item, index) => {
-		const junctionId = item[junctionPkField];
-		if (junctionId) {
-			existingItems.push([item, index]);
-		} else {
-			// For new items, we need to match them with their create entry
-			const tempId = item[junctionField]?.$tempId;
-			if (tempId) {
-				newItemsWithIndex.push([item, index]);
-			}
-		}
-	});
-
-	// Handle updates for existing items
-	const newUpdates = existingItems.map(([item, index]) => {
-		const itemId = item[junctionPkField];
-		const existingUpdate = existingUpdates[itemId];
-		const newSortValue = index + 1;
-
-		if (existingUpdate) {
-			return {
-				...existingUpdate,
-				[junctionPkField]: itemId,
-				[props.sortField!]: newSortValue
-			};
-		}
-
-		return {
-			[junctionPkField]: itemId,
-			[props.sortField!]: newSortValue
-		};
-	});
-
-	// Update sort values for new items in create array
-	const newCreate = [...stagedChanges.value.create];
-	newItemsWithIndex.forEach(([item, index]) => {
-		const tempId = item[junctionField]?.$tempId;
-		const createIndex = newCreate.findIndex(
-			createItem => createItem[junctionField]?.$tempId === tempId
-		);
-
-		if (createIndex !== -1) {
-			newCreate[createIndex] = {
-				...newCreate[createIndex],
-				[props.sortField!]: index + 1
-			};
-		}
-	});
-
-	stagedChanges.value = {
-		...stagedChanges.value,
-		create: newCreate,
-		update: newUpdates
-	};
-
-	emit('input', stagedChanges.value);
+	if (event.moved) {
+		// Get the new order of items after the drag
+		console.log('Sortable items before sort:', sortableItems.value);
+		handleSort(sortableItems.value);
+	}
 }
 
 function handleDrawerUpdateWithSort(edits: Record<string, any>) {

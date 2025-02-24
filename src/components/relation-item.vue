@@ -14,7 +14,7 @@
       name="drag_handle" 
       class="drag-handle" 
       left 
-      @click.stop="() => {}"
+      @click.stop
     />
     <template v-if="item[junctionField]?.$loading">
       <v-skeleton-loader type="list-item-icon" />
