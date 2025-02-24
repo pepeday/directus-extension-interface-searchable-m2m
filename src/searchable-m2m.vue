@@ -853,17 +853,9 @@ const customFilter = computed(() => {
 
 // Add this function to handle drag events
 function handleDragChange(event: any) {
-	console.log('Drag event details:', {
-		event,
-		type: event.moved ? 'moved' : 'other',
-		oldIndex: event.moved?.oldIndex,
-		newIndex: event.moved?.newIndex,
-		element: event.moved?.element
-	});
 	
 	if (event.moved) {
 		// Get the new order of items after the drag
-		console.log('Sortable items before sort:', sortableItems.value);
 		handleSort(sortableItems.value);
 	}
 }

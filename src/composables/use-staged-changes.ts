@@ -3,7 +3,6 @@ import { RelationM2MTypes } from './types';
 import { useApi } from '@directus/composables';
 import { getEndpoint, getFieldsFromTemplate } from '@directus/utils';
 
-console.log('Version 8');
 
 export interface StagedChanges {
   create: Record<string, any>[];
@@ -108,13 +107,7 @@ export function useStagedChanges(
     const junctionField = relationInfo.value.junctionField.field;
     const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
     
-    console.log('Handling drawer update:', {
-      edits,
-      junctionId,
-      junctionField,
-      editingItem: editingItem.value,
-      currentStagedChanges: stagedChanges.value
-    });
+    
     
     // For new items with $tempId
     if (junctionId === '+' && edits[junctionField]?.$tempId) {
@@ -443,16 +436,9 @@ export function useStagedChanges(
   }
 
   function handleSort(items: any[]) {
-    console.log('Sort handler details:', {
-      itemsLength: items.length,
-      firstItem: items[0],
-      lastItem: items[items.length - 1],
-      sortField,
-      relationInfo: relationInfo.value
-    });
+
     
     if (!relationInfo.value || !sortField) {
-      console.log('Sort aborted - missing relationInfo or sortField');
       return;
     }
     
@@ -464,71 +450,45 @@ export function useStagedChanges(
       const newSortValue = index + 1;
       
       // Log the raw item first
-      console.log('Raw item:', {
-        item,
-        index,
-        hasJunctionField: !!item[junctionField],
-        junctionFieldContent: item[junctionField],
-        hasPkField: !!item[junctionPkField]
-      });
+
       
       // Check if this is a new item by looking for $tempId or $staged
       const junctionData = item[junctionField];
       const isNewItem = !item[junctionPkField] && junctionData && 
         (junctionData.$tempId || junctionData.$staged);
 
-      console.log('Item analysis:', {
-        isNewItem,
-        junctionData,
-        hasTempId: junctionData?.$tempId,
-        hasStaged: junctionData?.$staged
-      });
+
 
       if (isNewItem) {
-        console.log('Found new item:', item);
         // Find matching item in create array
-        console.log('Current create array:', stagedChanges.value.create);
         
         const createIndex = stagedChanges.value.create.findIndex(createItem => {
           const createJunctionData = createItem[junctionField];
-          console.log('Comparing with create item:', {
-            createItem,
-            createJunctionData,
-            currentTempId: junctionData.$tempId,
-            createTempId: createJunctionData?.$tempId,
-            currentId: junctionData.id,
-            createId: createJunctionData?.id
-          });
+
 
           if (!createJunctionData) return false;
 
           // Match by tempId
           if (junctionData.$tempId && createJunctionData.$tempId) {
             const matches = junctionData.$tempId === createJunctionData.$tempId;
-            console.log('TempId comparison:', { matches });
             return matches;
           }
           
           // Match by id for staged items
           if (junctionData.$staged && createJunctionData.$staged) {
             const matches = junctionData.id === createJunctionData.id;
-            console.log('Staged ID comparison:', { matches });
             return matches;
           }
 
           return false;
         });
 
-        console.log('Create index found:', createIndex);
         if (createIndex !== -1) {
           const updatedItem = {
             ...stagedChanges.value.create[createIndex],
             [sortField]: newSortValue
           };
-          console.log('Updating create item:', {
-            before: stagedChanges.value.create[createIndex],
-            after: updatedItem
-          });
+          
           stagedChanges.value.create[createIndex] = updatedItem;
         }
       } else if (item[junctionPkField]) {
@@ -553,7 +513,6 @@ export function useStagedChanges(
       }
     });
 
-    console.log('Final staged changes:', stagedChanges.value);
     stagedChanges.value = {
       ...stagedChanges.value,
       create: [...stagedChanges.value.create],
