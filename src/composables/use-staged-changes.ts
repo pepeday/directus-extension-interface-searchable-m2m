@@ -112,43 +112,41 @@ export function useStagedChanges(
       currentStagedChanges: stagedChanges.value
     });
     
-    const isNewItem = junctionId === '+';
-    
-    if (isNewItem) {
+    // For new items
+    if (junctionId === '+') {
       const originalItem = editingItem.value.edits;
       const tempId = originalItem?.[junctionField]?.$tempId;
+      
+      if (!tempId) return;
 
-      console.log('Updating new item:', { tempId, originalItem });
-
-      // Find the item by its temporary ID
       const itemIndex = stagedChanges.value.create.findIndex(item => 
         item[junctionField]?.$tempId === tempId
       );
 
-      console.log('Found item at index:', itemIndex);
-
       if (itemIndex !== -1) {
+        const existingItem = stagedChanges.value.create[itemIndex];
+        if (!existingItem) return;
+
         const updatedCreate = [...stagedChanges.value.create];
-        const existingItem = updatedCreate[itemIndex];
         
-        // Merge the existing item with the new edits, preserving the tempId
+        // Take root level fields from existing item (like sort)
+        // Take the entire junction field object from edits (already consolidated)
         const updatedItem = {
+          ...existingItem,  // Preserve root level fields (sort, etc)
+          ...edits,         // Apply any new root level changes
           [junctionField]: {
-            ...existingItem[junctionField],
-            ...edits[junctionField],
-            $tempId: tempId
+            ...edits[junctionField],  // Take consolidated junction field updates
+            $tempId: tempId          // Preserve metadata
           }
         };
         
         updatedCreate[itemIndex] = updatedItem;
-        console.log('Updated item:', updatedItem);
 
         const newStagedChanges = {
           ...stagedChanges.value,
           create: updatedCreate
         };
 
-        console.log('New staged changes:', newStagedChanges);
         stagedChanges.value = newStagedChanges;
         return newStagedChanges;
       }
