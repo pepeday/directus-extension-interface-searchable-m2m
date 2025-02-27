@@ -244,7 +244,8 @@ const {
 	deleteItem,
 	openEditDrawer,
 	handleDrawerUpdate,
-	handleSort
+	handleSort,
+	sanitizedForForm
 } = useStagedChanges(relationInfo, displayItems, props.referencingField, props.sortField, emit);
 
 const { usePermissionsStore, useUserStore } = useStores();
@@ -565,7 +566,7 @@ async function handleItemSelection(item: Record<string, any>) {
 	if (!relationInfo.value) return;
 	const newChanges = await stageExistingItem(item, props.primaryKey);
 	if (newChanges) {
-		emit('input', newChanges);
+		emit('input', sanitizedForForm.value);
 		localInput.value = '';
 		menuActive.value = false;
 	}
@@ -577,7 +578,7 @@ function select(items: Record<string, any>[]) {
 	items.forEach(async item => {
 		const newChanges = await stageDrawerSelection(item, props.primaryKey);
 		if (newChanges) {
-			emit('input', newChanges);
+			emit('input', sanitizedForForm.value);
 		}
 	});
 
@@ -609,7 +610,7 @@ async function stageValue(value: string) {
 		} else if (createAllowed.value && props.referencingField) {
 			const newChanges = await stageNewItem(value, props.primaryKey, props.referencingField);
 			if (newChanges) {
-				emit('input', newChanges);
+				emit('input', sanitizedForForm.value);
 			}
 		}
 	} catch (err) {
@@ -828,7 +829,7 @@ function getItemIcon(item: Record<string, any>): string {
 function handleDelete(item: Record<string, any>) {
 	const newStagedChanges = deleteItem(item);
 	if (newStagedChanges) {
-		emit('input', newStagedChanges);
+		emit('input', sanitizedForForm.value);
 	}
 }
 
@@ -855,10 +856,11 @@ const customFilter = computed(() => {
 
 // Add this function to handle drag events
 function handleDragChange(event: any) {
-	
 	if (event.moved) {
 		// Get the new order of items after the drag
 		handleSort(sortableItems.value);
+		// Make sure we emit sanitized form data
+		emit('input', sanitizedForForm.value);
 	}
 }
 
@@ -905,7 +907,7 @@ function handleDrawerUpdateWithSort(edits: Record<string, any>) {
 function handleUpdate(edits: Record<string, any>) {
 	const newStagedChanges = handleDrawerUpdateWithSort(edits);
 	if (newStagedChanges) {
-		emit('input', newStagedChanges);
+		emit('input', sanitizedForForm.value);
 		editDrawerActive.value = false;
 	}
 }

@@ -3,7 +3,6 @@ import { RelationM2MTypes } from './types';
 import { useApi } from '@directus/composables';
 import { getEndpoint, getFieldsFromTemplate } from '@directus/utils';
 
-
 export interface StagedChanges {
   create: Record<string, any>[];
   update: Record<string, any>[];
@@ -220,6 +219,7 @@ export function useStagedChanges(
       }
 
       stagedChanges.value = newStagedChanges;
+      
       return newStagedChanges;
     }
   }
@@ -243,6 +243,7 @@ export function useStagedChanges(
     };
 
     stagedChanges.value = newStagedChanges;
+    
     return newStagedChanges;
   }
 
@@ -268,6 +269,7 @@ export function useStagedChanges(
       };
 
       stagedChanges.value = newStagedChanges;
+      
       return newStagedChanges;
     }
 
@@ -286,6 +288,7 @@ export function useStagedChanges(
     };
 
     stagedChanges.value = newStagedChanges;
+    
     return newStagedChanges;
   }
 
@@ -436,8 +439,6 @@ export function useStagedChanges(
   }
 
   function handleSort(items: any[]) {
-
-    
     if (!relationInfo.value || !sortField) {
       return;
     }
@@ -518,12 +519,86 @@ export function useStagedChanges(
       create: [...stagedChanges.value.create],
       update: [...stagedChanges.value.update]
     };
-    emit('input', stagedChanges.value);
+    
     return stagedChanges.value;
   }
 
+  function sanitizeForEmit(stagedChanges: StagedChanges): StagedChanges {
+    
+    // Deep clone the object to avoid modifying the original
+    const clonedChanges = JSON.parse(JSON.stringify(stagedChanges));
+    
+    // Create a recursive function to remove $ fields at any level
+    function removeSpecialProps(obj: any) {
+      if (!obj || typeof obj !== 'object') return obj;
+      
+      if (Array.isArray(obj)) {
+        return obj.map(item => removeSpecialProps(item));
+      }
+      
+      const result: Record<string, any> = {};
+      
+      for (const key in obj) {
+        if (key.startsWith('$')) {
+          continue; // Skip $ properties
+        }
+        
+        if (typeof obj[key] === 'object' && obj[key] !== null) {
+          result[key] = removeSpecialProps(obj[key]);
+        } else {
+          result[key] = obj[key];
+        }
+      }
+      
+      return result;
+    }
+    
+    const sanitized: StagedChanges = {
+      create: removeSpecialProps(clonedChanges.create),
+      update: removeSpecialProps(clonedChanges.update),
+      delete: [...clonedChanges.delete]
+    };
+    
+    return sanitized;
+  }
+
+  const sanitizedChanges = computed(() => {
+    return sanitizeForEmit(stagedChanges.value);
+  });
+
+  // Enhance the sanitizedForForm computed property for deeper inspection
+  const sanitizedForForm = computed(() => {
+    
+    // Deep clone
+    const sanitized = JSON.parse(JSON.stringify(stagedChanges.value));
+    
+    // Enhanced recursive sanitization that logs more details
+    function sanitizeSpecialFields(obj: any, path = '') {
+      if (!obj || typeof obj !== 'object') return;
+      
+      if (Array.isArray(obj)) {
+        obj.forEach((item, index) => 
+          sanitizeSpecialFields(item, `${path}[${index}]`));
+        return;
+      }
+      
+      // Find and remove $ properties
+      for (const key of Object.keys(obj)) {
+        if (key.startsWith('$')) {
+          delete obj[key];
+        } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+          sanitizeSpecialFields(obj[key], `${path}.${key}`);
+        }
+      }
+    }
+    
+    sanitizeSpecialFields(sanitized, 'root');
+    return sanitized;
+  });
+
   return {
     stagedChanges,
+    sanitizedChanges,
     editDrawer,
     editingItem,
     editDrawerActive,
@@ -539,6 +614,7 @@ export function useStagedChanges(
     openEditDrawer,
     handleDrawerUpdate,
     fetchStagedItems,
-    handleSort
+    handleSort,
+    sanitizedForForm
   };
 } 
