@@ -270,6 +270,7 @@ const menuStyle = ref({
 	width: '0px'
 });
 const resizeObserver = ref<ResizeObserver | null>(null);
+const loading = ref(false);
 
 // Computed
 const createAllowed = computed(() => {
@@ -301,40 +302,6 @@ const isSortable = computed(() => {
 	return !!props.sortField && !props.disabled;
 });
 
-// Add this function to fetch multiple items at once
-async function fetchStagedItems(ids: (string | number)[]) {
-	if (!relationInfo.value) return null;
-
-	try {
-		const response = await api.get(
-			getEndpoint(relationInfo.value.relatedCollection.collection),
-			{
-				params: {
-					fields: [
-						relationInfo.value.relatedPrimaryKeyField.field,
-						props.referencingField,
-						...getFieldsFromTemplate(props.template || '')
-					],
-					filter: {
-						[relationInfo.value.relatedPrimaryKeyField.field]: {
-							_in: ids
-						}
-					}
-				}
-			}
-		);
-		// Convert array to map for easier lookup
-		const itemsMap: Record<string | number, any> = {};
-		response.data.data.forEach((item: any) => {
-			itemsMap[item[relationInfo.value.relatedPrimaryKeyField.field]] = item;
-		});
-		return itemsMap;
-	} catch (error) {
-		console.error('Error fetching item data:', error);
-		return null;
-	}
-}
-
 // Add a ref to store fetched item data
 const stagedItemsData = ref<Record<number | string, Record<string, any>>>({});
 
@@ -348,7 +315,6 @@ watch(
 		const relatedCollection = relationInfo.value.relatedCollection.collection;
 		const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
 
-		// Get IDs of items that need to be fetched
 		const idsToFetch = newStagedItems
 			.map(item => item[junctionField]?.[relatedPkField])
 			.filter(id => id && !stagedItemsData.value[id]);
@@ -356,16 +322,28 @@ watch(
 		if (idsToFetch.length === 0) return;
 
 		try {
+			const templateFields = getFieldsFromTemplate(templateWithDefaults.value || '')
+				.map(field => field.replace(`${relationInfo.value.junctionField.field}.`, ''));
+
+			const fields = [
+				relatedPkField,
+				props.referencingField,
+				...templateFields
+			];
+			
+			console.log('Fetching item details with fields:', fields);
+
 			const response = await api.get(getEndpoint(relatedCollection), {
 				params: {
 					filter: {
 						[relatedPkField]: { _in: idsToFetch }
 					},
-					fields: ['*'] // Or specify the fields you need
+					fields
 				}
 			});
 
-			// Store fetched data
+			console.log('Fetched item details:', JSON.stringify(response.data.data, null, 2));
+
 			response.data.data.forEach((item: any) => {
 				stagedItemsData.value[item[relatedPkField]] = item;
 			});
@@ -430,25 +408,22 @@ const displayedItems = computed(() => {
 		});
 	}
 
-	console.log('Sorting result:', JSON.stringify(result, null, 2));
 	return result;
 });
 
 const templateWithDefaults = computed(() => {
-	if (!relationInfo.value) return null;
+	if (!relationInfo.value) return '';
 
 	if (props.template) {
-		// If template fields don't include junction field prefix, add it
 		return props.template.replace(
 			/\{\{([^}]+)\}\}/g,
 			(match, field) => {
 				if (field.includes('.')) return match;
-				return `{{${relationInfo.value.junctionField.field}.${field}}}`;
+				return `{{${relationInfo.value!.junctionField.field}.${field}}}`;
 			}
 		);
 	}
 
-	// Default template using the referencing field
 	return `{{${relationInfo.value.junctionField.field}.${props.referencingField}}}`;
 });
 
@@ -641,7 +616,7 @@ async function refreshSuggestions(keyword: string) {
 	isSearching.value = true;
 
 	// Get all fields from template without the junction prefix
-	const templateFields = getFieldsFromTemplate(templateWithDefaults.value || '')
+	const templateFields = getFieldsFromTemplate(relationInfo.value.template || '')
 		.map(field => field.replace(`${relationInfo.value.junctionField.field}.`, ''));
 
 	// Get current selected IDs to exclude from search
@@ -719,7 +694,7 @@ async function loadExistingItems() {
 	try {
 		const fields = [
 			...requiredFields.value,
-			...getFieldsFromTemplate(templateWithDefaults.value || '')
+			...getFieldsFromTemplate(relationInfo.value.template || '')
 		];
 
 		// Add sortField to fields if it exists
@@ -834,7 +809,6 @@ const customFilter = computed(() => {
 // Add this function to handle drag events
 function handleDragChange(event: any) {
 	if (event.moved) {
-		console.log('Drag event:', event);
 		
 		const junctionPkField = relationInfo.value!.junctionPrimaryKeyField.field;
 		const junctionField = relationInfo.value!.junctionField.field;
@@ -867,11 +841,6 @@ function handleDragChange(event: any) {
 			}
 		});
 		
-		console.log('New order after move:', JSON.stringify(newOrder, null, 2));
-		const result = handleSort(newOrder);
-		console.log('handleSort returned:', JSON.stringify(result, null, 2));
-		console.log('Staged changes after sort:', JSON.stringify(stagedChanges.value, null, 2));
-		console.log('About to emit sanitizedForForm:', JSON.stringify(sanitizedForForm.value, null, 2));
 		emit('input', sanitizedForForm.value);
 	}
 }
