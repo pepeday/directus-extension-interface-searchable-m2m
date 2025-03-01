@@ -97,14 +97,10 @@
 
 		<v-skeleton-loader v-if="loading" type="block-list-item" />
 
-		<transition-group v-else-if="consolidatedItems.length" 
-			name="list" 
-			tag="div" 
-			class="tags"
-		>
+		<transition-group v-if="displayedItems.length" name="list" tag="div" class="tags">
 			<Draggable
 				v-if="isSortable"
-				v-model="sortableItems"
+				:model-value="displayedItems"
 				:disabled="!isSortable"
 				@change="handleDragChange"
 				item-key="id"
@@ -187,6 +183,8 @@ import Draggable from 'vuedraggable';
 
 type RelationFK = string | number | BigInt;
 type RelationItem = RelationFK | Record<string, any>;
+
+console.log('Version 3')
 
 const props = withDefaults(
 	defineProps<{
@@ -272,54 +270,6 @@ const menuStyle = ref({
 	width: '0px'
 });
 const resizeObserver = ref<ResizeObserver | null>(null);
-
-// Change displayedItems from computed to ref
-const sortableItems = ref<any[]>([]);
-
-// Update the computed to set sortableItems
-watch(
-	() => [...displayItems.value, ...stagedChanges.value.create],
-	(items) => {
-		if (!relationInfo.value) return;
-
-		const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
-		const junctionField = relationInfo.value.junctionField.field;
-		const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
-
-		// Process existing items
-		const processedItems = displayItems.value.map(item => {
-			const stagedUpdate = stagedChanges.value.update.find(
-				update => update[junctionPkField] === item[junctionPkField]
-			);
-			return stagedUpdate ? { ...item, ...stagedUpdate } : item;
-		});
-
-		// Process new items
-		const stagedItems = stagedChanges.value.create.map(item => {
-			const itemId = item[junctionField]?.[relatedPkField];
-			return {
-				...item,
-				[junctionField]: {
-					...item[junctionField]
-				},
-				$type: 'created'
-			};
-		});
-
-		// Combine and sort
-		const combined = [...processedItems, ...stagedItems];
-		if (props.sortField) {
-			combined.sort((a, b) => {
-				const aSort = Number(a[props.sortField!] || 0);
-				const bSort = Number(b[props.sortField!] || 0);
-				return aSort - bSort;
-			});
-		}
-
-		sortableItems.value = combined;
-	},
-	{ immediate: true }
-);
 
 // Computed
 const createAllowed = computed(() => {
@@ -426,51 +376,61 @@ watch(
 	{ immediate: true }
 );
 
-const consolidatedItems = computed(() => {
+// Create a new single source of truth for displayed items
+const displayedItems = computed(() => {
 	if (!relationInfo.value) return [];
 
+	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
 	const junctionField = relationInfo.value.junctionField.field;
-	const items: Record<string, any>[] = [];
+	const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
 
-	// Add existing items (including deleted ones)
-	items.push(
-		...displayItems.value.map(item => ({
+	// Process existing items with their updates
+	const updatedItems = displayItems.value.map(item => {
+		const stagedUpdate = stagedChanges.value.update.find(
+			update => update[junctionPkField] === item[junctionPkField]
+		);
+		return {
 			...item,
+			...stagedUpdate,
 			$type: isItemDeleted(item) ? 'deleted' : undefined
-		}))
-	);
+		};
+	});
 
-	// Add staged items
-	stagedChanges.value.create.forEach(item => {
-		const junctionData = item[junctionField];
-		if (!junctionData) return;
+	// Process staged items
+	const stagedItems = stagedChanges.value.create.map(item => {
+		const itemId = item[junctionField]?.[relatedPkField];
+		const fetchedData = itemId ? stagedItemsData.value[itemId] : null;
 
-		const stagedData = junctionData.id ? stagedItemsData.value[junctionData.id] : null;
-
-		const structuredItem = {
-			[relationInfo.value.junctionPrimaryKeyField.field]: null,
+		return {
+			...item,
 			[junctionField]: {
-				...(junctionData.id ? stagedData?.data || junctionData : junctionData),
-				$staged: true,
-				$loading: stagedData?.loading || false
+				...fetchedData,
+				...item[junctionField]
 			},
 			$type: 'created'
 		};
-
-		items.push(structuredItem);
 	});
 
-	const result = [...items];
+	const result = [...updatedItems, ...stagedItems];
 
-	// Sort items by sortField if it exists
+	// Sort using the staged sort values
 	if (props.sortField) {
 		result.sort((a, b) => {
-			const aSort = a[props.sortField!] || 0;
-			const bSort = b[props.sortField!] || 0;
+			// First check staged updates for sort values
+			const aUpdate = stagedChanges.value.update.find(
+				update => update[junctionPkField] === a[junctionPkField]
+			);
+			const bUpdate = stagedChanges.value.update.find(
+				update => update[junctionPkField] === b[junctionPkField]
+			);
+
+			const aSort = Number(aUpdate?.[props.sortField!] ?? a[props.sortField!] ?? 0);
+			const bSort = Number(bUpdate?.[props.sortField!] ?? b[props.sortField!] ?? 0);
 			return aSort - bSort;
 		});
 	}
 
+	console.log('Sorting result:', JSON.stringify(result, null, 2));
 	return result;
 });
 
@@ -874,9 +834,44 @@ const customFilter = computed(() => {
 // Add this function to handle drag events
 function handleDragChange(event: any) {
 	if (event.moved) {
-		// Get the new order of items after the drag
-		handleSort(sortableItems.value);
-		// Make sure we emit sanitized form data
+		console.log('Drag event:', event);
+		
+		const junctionPkField = relationInfo.value!.junctionPrimaryKeyField.field;
+		const junctionField = relationInfo.value!.junctionField.field;
+		
+		// Create new order based on the move
+		const items = [...displayedItems.value];
+		const [movedItem] = items.splice(event.moved.oldIndex, 1);
+		items.splice(event.moved.newIndex, 0, movedItem);
+		
+		// Map the new order to sort values, properly identifying each item type
+		const newOrder = items.map((item, index) => {
+			// Check if this is a staged item
+			const isStaged = item.$type === 'created';
+			
+			if (isStaged) {
+				// For staged items, include the correct identifier
+				return {
+					sort: index + 1,
+					// For new items, use $tempId
+					...(item[junctionField]?.$tempId ? { $tempId: item[junctionField].$tempId } : {}),
+					// For existing staged items, use id and $staged
+					...(item[junctionField]?.id ? { relatedId: item[junctionField].id, $staged: true } : {})
+				};
+			} else {
+				// For existing items, use junctionId
+				return {
+					junctionId: item[junctionPkField],
+					sort: index + 1
+				};
+			}
+		});
+		
+		console.log('New order after move:', JSON.stringify(newOrder, null, 2));
+		const result = handleSort(newOrder);
+		console.log('handleSort returned:', JSON.stringify(result, null, 2));
+		console.log('Staged changes after sort:', JSON.stringify(stagedChanges.value, null, 2));
+		console.log('About to emit sanitizedForForm:', JSON.stringify(sanitizedForForm.value, null, 2));
 		emit('input', sanitizedForForm.value);
 	}
 }
@@ -928,59 +923,6 @@ function handleUpdate(edits: Record<string, any>) {
 		editDrawerActive.value = false;
 	}
 }
-
-const displayedItems = computed(() => {
-	if (!relationInfo.value) return [];
-
-	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
-	const junctionField = relationInfo.value.junctionField.field;
-	const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
-
-	// Start with existing items and apply any updates
-	const updatedItems = displayItems.value.map(item => {
-		// Check if this item has staged updates
-		const stagedUpdate = stagedChanges.value.update.find(
-			update => update[junctionPkField] === item[junctionPkField]
-		);
-
-		if (stagedUpdate) {
-			return {
-				...item,
-				...stagedUpdate
-			};
-		}
-
-		return item;
-	});
-
-	// Add newly created items
-	const newItems = stagedChanges.value.create.map(item => {
-		const itemId = item[junctionField]?.[relatedPkField];
-		const fetchedData = itemId ? stagedItemsData.value[itemId] : null;
-
-		return {
-			...item,
-			[junctionField]: {
-				...fetchedData,
-				...item[junctionField]
-			},
-			$type: 'created'
-		};
-	});
-
-	const result = [...updatedItems, ...newItems];
-
-	// Sort by the sortField if it exists
-	if (props.sortField) {
-		result.sort((a, b) => {
-			const aSort = Number(a[props.sortField!] || 0);
-			const bSort = Number(b[props.sortField!] || 0);
-			return aSort - bSort;
-		});
-	}
-
-	return result;
-});
 
 function openItem(item: Record<string, any>) {
 	if (!relationInfo.value || !item[relationInfo.value.junctionField.field]) return;

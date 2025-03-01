@@ -9,6 +9,15 @@ export interface StagedChanges {
   delete: string[];
 }
 
+// Update the type to include all possible identifiers
+type SortOrder = {
+  junctionId?: number | string;
+  sort: number;
+  $tempId?: string;
+  relatedId?: number | string;
+  $staged?: boolean;
+};
+
 export function useStagedChanges(
   relationInfo: Ref<RelationM2MTypes | null>,
   displayItems: Ref<any[]>,
@@ -202,7 +211,7 @@ export function useStagedChanges(
       // Ensure junction field data is properly structured
       if (edits[junctionField]) {
         updateItem[junctionField] = {
-          ...existingUpdate[junctionField],
+          ...(existingUpdate?.[junctionField] || {}),
           ...edits[junctionField]
         };
 
@@ -440,89 +449,57 @@ export function useStagedChanges(
     }
   }
 
-  function handleSort(items: any[]) {
-    if (!relationInfo.value || !sortField) {
-      return;
-    }
-    
+  function handleSort(newOrder: SortOrder[]) {
+    if (!relationInfo.value || !sortField) return;
+
     const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
     const junctionField = relationInfo.value.junctionField.field;
 
-    // Process each item to update its sort value
-    items.forEach((item, index) => {
-      const newSortValue = index + 1;
-      
-      // Log the raw item first
+    // Separate existing items from staged items
+    const existingItems: SortOrder[] = [];
+    const stagedItems: SortOrder[] = [];
 
-      
-      // Check if this is a new item by looking for $tempId or $staged
-      const junctionData = item[junctionField];
-      const isNewItem = !item[junctionPkField] && junctionData && 
-        (junctionData.$tempId || junctionData.$staged);
-
-
-
-      if (isNewItem) {
-        // Find matching item in create array
-        
-        const createIndex = stagedChanges.value.create.findIndex(createItem => {
-          const createJunctionData = createItem[junctionField];
-
-
-          if (!createJunctionData) return false;
-
-          // Match by tempId
-          if (junctionData.$tempId && createJunctionData.$tempId) {
-            const matches = junctionData.$tempId === createJunctionData.$tempId;
-            return matches;
-          }
-          
-          // Match by id for staged items
-          if (junctionData.$staged && createJunctionData.$staged) {
-            const matches = junctionData.id === createJunctionData.id;
-            return matches;
-          }
-
-          return false;
-        });
-
-        if (createIndex !== -1) {
-          const updatedItem = {
-            ...stagedChanges.value.create[createIndex],
-            [sortField]: newSortValue
-          };
-          
-          stagedChanges.value.create[createIndex] = updatedItem;
-        }
-      } else if (item[junctionPkField]) {
-        // Handle existing items
-        const existingUpdateIndex = stagedChanges.value.update.findIndex(
-          update => update[junctionPkField] === item[junctionPkField]
-        );
-
-        const updateItem = {
-          [junctionPkField]: item[junctionPkField],
-          [sortField]: newSortValue
-        };
-
-        if (existingUpdateIndex !== -1) {
-          stagedChanges.value.update[existingUpdateIndex] = {
-            ...stagedChanges.value.update[existingUpdateIndex],
-            ...updateItem
-          };
-        } else {
-          stagedChanges.value.update.push(updateItem);
-        }
+    newOrder.forEach((item) => {
+      if (item.junctionId) {
+        existingItems.push(item);
+      } else {
+        stagedItems.push(item);
       }
     });
 
-    stagedChanges.value = {
+    // Update existing items
+    const updates = existingItems.map(({ junctionId, sort }) => ({
+      [junctionPkField]: junctionId,
+      [sortField]: sort
+    }));
+
+    // Update staged items - maintain their relative order
+    const newCreate = stagedChanges.value.create.map((item) => {
+      // Try to find matching staged item by tempId first, then by relatedId
+      const matchingOrder = stagedItems.find((staged) => {
+        if (item[junctionField]?.$tempId) {
+          return staged.$tempId === item[junctionField].$tempId;
+        }
+        return staged.$staged && staged.relatedId === item[junctionField]?.id;
+      });
+
+      if (matchingOrder) {
+        return {
+          ...item,
+          [sortField]: matchingOrder.sort
+        };
+      }
+      return item;
+    });
+
+    const newStagedChanges = {
       ...stagedChanges.value,
-      create: [...stagedChanges.value.create],
-      update: [...stagedChanges.value.update]
+      create: newCreate,
+      update: updates
     };
-    
-    return stagedChanges.value;
+
+    stagedChanges.value = newStagedChanges;
+    return newStagedChanges;
   }
 
   function sanitizeForEmit(stagedChanges: StagedChanges): StagedChanges {
@@ -531,18 +508,18 @@ export function useStagedChanges(
     const clonedChanges = JSON.parse(JSON.stringify(stagedChanges));
     
     // Create a recursive function to remove $ fields at any level
-    function removeSpecialProps(obj: any) {
+    function removeSpecialProps(obj: any): any {
       if (!obj || typeof obj !== 'object') return obj;
       
       if (Array.isArray(obj)) {
-        return obj.map(item => removeSpecialProps(item));
+        return obj.map((item: any) => removeSpecialProps(item));
       }
       
       const result: Record<string, any> = {};
       
       for (const key in obj) {
         if (key.startsWith('$')) {
-          continue; // Skip $ properties
+          continue;
         }
         
         if (typeof obj[key] === 'object' && obj[key] !== null) {
