@@ -833,21 +833,38 @@ function handleDelete(item: Record<string, any>) {
 	}
 }
 
-// Add computed property for custom filter
+// Update the customFilter computed property to exclude selected and staged items
 const customFilter = computed(() => {
+	if (!relationInfo.value) return {};
+
 	const filter: Filter = {
-		_and: [],
+		_and: []
 	};
 
+	// Add the existing filter if provided
 	if (props.filter) {
 		filter._and.push(props.filter);
 	}
 
-	if (selectedPrimaryKeys.value.length > 0) {
+	// Get all selected IDs (both existing and staged)
+	const selectedIds = displayItems.value
+		.map(item => item[relationInfo.value.junctionField.field]?.[relationInfo.value.relatedPrimaryKeyField.field])
+		.filter(id => id !== undefined && id !== null);
+
+	// Add staged items IDs
+	const stagedIds = stagedChanges.value.create
+		.map(item => item[relationInfo.value.junctionField.field]?.id)
+		.filter(id => id !== undefined && id !== null);
+
+	// Combine all IDs to exclude
+	const idsToExclude = [...selectedIds, ...stagedIds];
+
+	// Only add the exclusion filter if there are IDs to exclude
+	if (idsToExclude.length > 0) {
 		filter._and.push({
-			[relationInfo.value?.relatedPrimaryKeyField.field]: {
-				_nin: selectedPrimaryKeys.value,
-			},
+			[relationInfo.value.relatedPrimaryKeyField.field]: {
+				_nin: idsToExclude
+			}
 		});
 	}
 
