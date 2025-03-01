@@ -228,11 +228,13 @@ export function useStagedChanges(
     if (!relationInfo.value) return;
     
     const junctionField = relationInfo.value.junctionField.field;
+    const reverseJunctionField = relationInfo.value.reverseJunctionField.field;
     
-    // Match Case 1 & 2 from staging-cases
+    // Create a new staged item that preserves the parent ID
     const stagedItem = {
+      ...item,  // This ensures we keep the reverseJunctionField (parent ID)
       [junctionField]: {
-        ...(item[junctionField] || {}), // Keep existing data
+        ...(item[junctionField] || {}),
         $staged: true
       }
     };
@@ -297,16 +299,13 @@ export function useStagedChanges(
 
     const junctionField = relationInfo.value.junctionField.field;
     const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
+    const reverseJunctionField = relationInfo.value.reverseJunctionField.field;
 
-    // Get the full item data first
-    const itemData = await fetchStagedItems([item[relatedPkField]]);
-    const fullItemData = itemData?.[item[relatedPkField]];
-
-    // Create staged item with full data
+    // Create a minimal staged item with just the necessary IDs
     const stagedItem = {
+      [reverseJunctionField]: primaryKey,
       [junctionField]: {
-        ...fullItemData,  // Include all item data
-        id: item[relatedPkField],
+        [relatedPkField]: item[relatedPkField],
         $staged: true
       }
     };
@@ -319,15 +318,18 @@ export function useStagedChanges(
 
     const junctionField = relationInfo.value.junctionField.field;
     const relatedPkField = relationInfo.value.relatedPrimaryKeyField.field;
+    const reverseJunctionField = relationInfo.value.reverseJunctionField.field;
 
     const itemId = typeof item === 'string' || typeof item === 'number' 
       ? item 
       : item[relatedPkField];
 
-    // Only include the junction field data
+    // Create staged item with both parent and related IDs
     const stagedItem = {
+      [reverseJunctionField]: primaryKey,
       [junctionField]: {
-        [relatedPkField]: itemId
+        [relatedPkField]: itemId,
+        $staged: true
       }
     };
 
