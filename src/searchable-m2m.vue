@@ -331,7 +331,6 @@ watch(
 				...templateFields
 			];
 			
-			console.log('Fetching item details with fields:', fields);
 
 			const response = await api.get(getEndpoint(relatedCollection), {
 				params: {
@@ -342,7 +341,6 @@ watch(
 				}
 			});
 
-			console.log('Fetched item details:', JSON.stringify(response.data.data, null, 2));
 
 			response.data.data.forEach((item: any) => {
 				stagedItemsData.value[item[relatedPkField]] = item;
@@ -809,37 +807,39 @@ const customFilter = computed(() => {
 // Add this function to handle drag events
 function handleDragChange(event: any) {
 	if (event.moved) {
+		console.log('Drag event - moving item from index', event.moved.oldIndex, 'to', event.moved.newIndex);
 		
 		const junctionPkField = relationInfo.value!.junctionPrimaryKeyField.field;
 		const junctionField = relationInfo.value!.junctionField.field;
 		
-		// Create new order based on the move
 		const items = [...displayedItems.value];
 		const [movedItem] = items.splice(event.moved.oldIndex, 1);
 		items.splice(event.moved.newIndex, 0, movedItem);
 		
-		// Map the new order to sort values, properly identifying each item type
 		const newOrder = items.map((item, index) => {
-			// Check if this is a staged item
 			const isStaged = item.$type === 'created';
 			
 			if (isStaged) {
-				// For staged items, include the correct identifier
-				return {
+				const order = {
 					sort: index + 1,
-					// For new items, use $tempId
 					...(item[junctionField]?.$tempId ? { $tempId: item[junctionField].$tempId } : {}),
-					// For existing staged items, use id and $staged
 					...(item[junctionField]?.id ? { relatedId: item[junctionField].id, $staged: true } : {})
 				};
+				console.log('Staged item order:', order);
+				return order;
 			} else {
-				// For existing items, use junctionId
-				return {
+				const order = {
 					junctionId: item[junctionPkField],
 					sort: index + 1
 				};
+				console.log('Existing item order:', order);
+				return order;
 			}
 		});
+
+		console.log('Final sort order:', newOrder);
+		const result = handleSort(newOrder);
+		console.log('Sort result:', result);
 		
 		emit('input', sanitizedForForm.value);
 	}
